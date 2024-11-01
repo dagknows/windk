@@ -1,3 +1,4 @@
+
 param (
     [string]$url
 )
@@ -8,16 +9,30 @@ if (-not [string]::IsNullOrEmpty($string)) {
     Start-Process $url
 }
 
+function Ensure-DirectoryExists {
+    param (
+        [string]$directoryPath
+    )    
+
+    # Check if the directory exists
+    if (-not (Test-Path -Path $directoryPath)) {
+        # Create the directory if it does not exist
+        New-Item -ItemType Directory -Path $directoryPath
+        Write-Output "Directory created: $directoryPath"
+    }    
+}
+
+
 # Define your Bearer token
-# $token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkYWdrbm93cy5jb20iLCJzdWIiOiJzYXJhbmdAZGFna25vd3MuY29tIiwibmJmIjoxNzMwMDkwNzE4LCJleHAiOjE3NjE2MjY4OTgsImp0aSI6Imd2U2I2U21iU2FSUzR6RlYiLCJhdWQiOiJkYWdrbm93cyIsInJvbGUiOiJzdXByZW1vIiwidXNlcl9jbGFpbXMiOnsidWlkIjoiMSIsInVuYW1lIjoic2FyYW5nQGRhZ2tub3dzLmNvbSIsIm9yZyI6ImRhZ2tub3dzIiwiZmlyc3RfbmFtZSI6IlNhcmFuZyIsImxhc3RfbmFtZSI6IkRoYXJtYXB1cmlrYXIiLCJyb2xlIjoiU3VwcmVtbyIsImFlc19rZXkiOiIxLVxuTURCTEMtOEx0ZkF1cm9sOUNHMExcbmZLTEIzclxudSIsIm9mc3QiOlszMTQsNDI2LDkxLDEzNCw0MjAsNDI0LDI3NywxOTcsNDQ5LDMzNiw0MzgsMzQ1LDMwMSw0MDUsMTAyLDE4OSwxNTksMTc0LDQwNiw2NiwzMDgsMzc0LDQzOCw0MjUsMTg1LDY1LDI3Nyw5MCwyMDAsMzg0LDIyMSwxMTZdfX0.hm2QvlTSsHslkrT9Db0lEZcs_qcrm2xkGp_pXahuYLfnhuYSfUkc7GeoynoKX2J37DJPaEglNKkEaJKL4rbxlX7kPVHD6ElKc8Se_csNOAHzTQf4h013be-uAaeC2Uo7Pb4ZO5uwquHi2Jqz0LbdtWOtlCFjIjOGugLK26rChJjFfqVLERYsgOXjaTwVqOGUfhT-OFJDaoBbHZAmrIB-UkkMKdIBKcto0DwQSOeyj4nv69htrLrGUheuHQkfE9gEKlaqWyynzx0MZIStjPkPheMzbk-AajrDO5GbaCh46AZEs_zl2_kq1OcgyC0QFrL2Wm5wsQ_gt7XhsMyMbvkOgQ"
-$token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkYWdrbm93cy5jb20iLCJzdWIiOiJraGFpQGRhZ2tub3dzLmNvbSIsIm5iZiI6MTczMDI0MjE4OSwiZXhwIjoxNzYxNzc4MzY5LCJqdGkiOiJJcGZMcGgyZElUZnpMMzVlIiwiYXVkIjoiZGFna25vd3MiLCJyb2xlIjoic3VwcmVtbyIsInVzZXJfY2xhaW1zIjp7InVpZCI6IjEiLCJ1bmFtZSI6ImtoYWlAZGFna25vd3MuY29tIiwib3JnIjoiRGFnS25vd3MiLCJmaXJzdF9uYW1lIjoiS2hhaSIsImxhc3RfbmFtZSI6IkRvYW4iLCJyb2xlIjoiU3VwcmVtbyIsImFlc19rZXkiOiJPRVcrR1RWLTRyZzI5OVByb28tQVFrdUFJT25Jc2h5QSIsIm9mc3QiOlsyODcsMTQ4LDE2OSw4NCwzMzYsMjY1LDE1MSw0MjksMzY1LDE1MCw2NCwzNzAsMTIzLDc3LDIxOSwxNTAsNzEsMjU0LDQ0OCwxNzksMzA2LDEyNCwxMzAsMzMyLDIwNiwyODcsMjExLDQzOSwzMDgsMjUzLDMzOCw2N119fQ.oCM4trdp6sygL0mW3fBQcYib31AdylP-rhJNhdcHOrzdnAa4JcqxR-i5TYiP1CwyhpWAW1mwnZgt3gZPyIOMbbpe_si-cAvDruS_6m-vkeX6NDcq0457dBIohwmU53nk5_kTdokfPh_CKI7jDjCLk409aLcOFlGvRaixjO1xD9iD8xsDMkjMyhENchOLfFCOtXuiFS_GMKATJYLENaRi8gW0X2ula2jh1_lXpO0xeqSKK4pJwH49DJE26xyaYLj9olFEtQ5qFtm54a5wWbSxn35_BalH_M7iO_UhastgEOI9sYoxMMALRBPG6OriqRDzcMjHGuEpi8gBVM1coFt5HQ"
+$token = $Env:PROXY_TOKEN
+$proxy_domain = $Env:PROXY_DOMAIN
+
 
 # Define the WebSocket server URI (ensure it starts with wss:// for a secure connection)
 # $uri = [System.Uri]::new("wss://dev.dagknows.com/wsfe/proxies/agents/connect")
-$uri = [System.Uri]::new("ws://khai.dagknows.com/wsfe/proxies/agents/connect")
-
-$execs_url = "ws://khai.dagknows.com/wsfe"
-$dagknows_url = "http://khai.dagknows.com"
+$uri = [System.Uri]::new("ws://" + $proxy_domain + "/wsfe/proxies/agents/connect")
+$execs_url = "ws://" + $proxy_domain + "/wsfe"
+$dagknows_url = "http://" + $proxy_domain
 
 # Create a new ClientWebSocket instance
 $websocket = New-Object System.Net.WebSockets.ClientWebSocket
@@ -80,8 +95,10 @@ try {
                 # & $fullPath p.iterid, p.convid, string(user_info), p.token
                 # Write-Host $job_id
                 # Write-Host $code_lines
-                $fileName = "$job_id.ps1"
-                if ($fileName -ne ".ps1") {
+                Ensure-DirectoryExists -directoryPath ".\.jobs"
+
+                $fileName = "\.jobs\$job_id.ps1"
+                if ($job_id -ne $null) {
                     # $iter $conv_id $token
                     $fullPath = Join-Path -Path $PSScriptRoot -ChildPath $fileName 
                     $streamWriter = [System.IO.StreamWriter]::new($fullPath, $false, [System.Text.Encoding]::UTF8)
