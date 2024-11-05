@@ -3,6 +3,8 @@ param (
 )
 $url = $url -replace "^dk://", "https://"
 
+Add-Type -AssemblyName System.Net.Http
+
 # The URL from which you want to extract the string
 # $url = "https://dev.dagknows.com/tasks/urVBfYgPpGU74mqGClZH/execute"
 
