@@ -84,18 +84,26 @@ function Start-WebSocketListener {
     $proxy_domain = $Env:PROXY_DOMAIN
 
 
+    $proxy_secure = [System.Boolean]::Parse($Env:PROXY_SECURE)
+    Write-Host "proxy_secure: " $proxy_secure
+    $proxy_ws = "ws://"
+    $proxy_http = "http://"
+    if ($proxy_secure) {
+        $proxy_ws = "wss://"
+        $proxy_http = "https://"
+    }
     # Define the WebSocket server URI (ensure it starts with wss:// for a secure connection)
     # $uri = [System.Uri]::new("wss://dev.dagknows.com/wsfe/proxies/agents/connect")
     $websocket = New-Object System.Net.WebSockets.ClientWebSocket
     $websocket.Options.SetRequestHeader("Authorization", "Bearer $token")
-    $uri = [System.Uri]::new("ws://" + $proxy_domain + "/wsfe/proxies/agents/connect")
-    $execs_url = "ws://" + $proxy_domain + "/wsfe"
-    $dagknows_url = "http://" + $proxy_domain
+    $uri = [System.Uri]::new($proxy_ws + $proxy_domain + "/wsfe/proxies/agents/connect")
+    $execs_url = $proxy_ws + $proxy_domain + "/wsfe"
+    $dagknows_url = $proxy_http + $proxy_domain
     $apiUrl = $dagknows_url + "/api/tasks/" + $runbook_task_id + "/execute"
     
     # param($websocket, $uri, $dagknows_url, $execs_url)
 
-    Write-Host "Trying to connect to ws"
+    Write-Host "Trying to connect to ws" 
 
     try {
         # Connect to the WebSocket server
