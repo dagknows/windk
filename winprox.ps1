@@ -20,8 +20,17 @@ if ($pattern.Success) {
     Write-Host "No match found."
 }
 
+function createTicket {
+    param (
+        [string]$job_id
+    )    
+
+    [System.Windows.Forms.MessageBox]::Show("Hey there.  Job ID: $($job_id)", "Alert", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+    
+}
+
 $dialogScript = {
-    param($proxy_ws, $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id)
+    param($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
     # Use a suitable dialog method, like a custom function or a .NET dialog
     Add-Type -AssemblyName System.Windows.Forms
 
@@ -46,13 +55,12 @@ $dialogScript = {
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 1000
     $content = ""
-    $problemResolvedBtn 
-    $problemResolvedBtn = New-Object System.Windows.Forms.Button
-    $problemResolvedBtn.Text = "Problem resolved"
-    $problemResolvedBtn.Top = 70
-    $problemResolvedBtn.Left = 70
-    $problemResolvedBtn.Width = 150
-    $problemResolvedBtn.Add_Click({ 
+    $problemResolvedButton = New-Object System.Windows.Forms.Button
+    $problemResolvedButton.Text = "Problem resolved"
+    $problemResolvedButton.Top = 70
+    $problemResolvedButton.Left = 70
+    $problemResolvedButton.Width = 150
+    $problemResolvedButton.Add_Click({ 
         $form.Close() 
         $host.SetShouldExit(1)
     })
@@ -65,18 +73,69 @@ $dialogScript = {
     $problemNotResolvedButton.Width = 160  # Specify the width of the second button
     $problemNotResolvedButton.Add_Click({
         # Add action for the "Resolved" button here
-        Write-Host "Ticket created."  # Placeholder for ticket creation logic
-        $label.Text = "Ticket created."
+        $createTicketScriptBlock = {
+            param($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
+
+            $ticket_task_id = $Env:TICKET_TASK_ID
+            if ($runbook_task_id -ne $ticket_task_id) {
+                # First, get the title of the original runbook task
+                $apiUrl = $dagknows_url + "/api/tasks/" + $runbook_task_id + ""
+                $headers = @{
+                    "Content-Type" = "application/json"
+                    "Authorization" = "Bearer $token"
+                }
+                $response = Invoke-RestMethod -Uri $apiUrl -Method GET -Headers $headers 
+                $runbook_task_title = $response.task.title
+
+                # Job URL should be referencing the original $runbook_task_id not the ticket_task_id
+                $job_url = "$dagknows_url/tasks/$($runbook_task_id)?job_id=$job_id&iter=0"
+                $ticket_body = "User:`n$($user_info.("first_name")) $($user_info.("last_name"))`nIssue:$runbook_task_title`nInfo:$job_url"
+                $params = @{
+                    "summary" = $runbook_task_title
+                    "description" = $ticket_body
+                }
+                # Now make a request.
+                $conv_id = "tconv_" + $ticket_task_id
+                $body = @{
+                "job"= @{
+                    "proxy_alias"="win"
+                    "param_values"=$params
+                    "special_param_values"=@{}
+                    "output_params"=@{}
+                    "runbook_task_id"=$ticket_task_id
+                    "starting_child_path"=""
+                    "conv_id"=$conv_id
+                }
+                }
+                $jsonBody = $body | ConvertTo-Json
+                $apiUrl = $dagknows_url + "/api/tasks/" + $ticket_task_id + "/execute"
+                $response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
+            }
+        }
+
+        $createTicketScriptBlock.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
+
         $timer.Stop()
-        $problemResolvedBtn.Text = "OK"
+        $label.Text = "Creating ticket."
         $problemNotResolvedButton.Visible = $false
         $problemNotResolvedButton.Hide()
         $form.Controls.Remove($problemNotResolvedButton)
-        $problemNotResolvedButton.Dispose()
-        #$form.Hide()
+        $problemResolvedButton.Text = "OK"
+        $problemResolvedButton.Visible = $false
+        $problemResolvedButton.Hide()
         $form.Invalidate()
         $form.Update()
         $form.Refresh()
+        Start-Sleep -Second 10
+        $label.Text = "Ticket created."
+        $problemResolvedButton.Visible = $true
+        $form.Invalidate()
+        $form.Update()
+        $form.Refresh()
+
+        $problemNotResolvedButton.Dispose()
+        
+        #createTicket($job_id)
         #$form.Close()
         #$host.SetShouldExit(1)
     })
@@ -88,7 +147,7 @@ $dialogScript = {
 
         if (($content.StartsWith("Ticket")) -or ($content.StartsWith("Runbook finished"))) {
             if (-not $problemResolvedButtonVisible) {
-                $form.Controls.Add($problemResolvedBtn)
+                $form.Controls.Add($problemResolvedButton)
                 $problemResolvedButtonVisible = $true
             }
 
@@ -185,12 +244,16 @@ $proxy_block = {
                 }
                 }
                 $jsonBody = $body | ConvertTo-Json
-                Write-Host "Making a POST request"
-                Write-Host "URL: " $apiUrl
-                Write-Host "Headers: " $headers
-                Write-Host "Body: " $jsonBody
-                $response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
-                Write-Host ($response | ConvertTo-Json -Depth 4)
+                if (($null -ne $runbook_task_id) -and ($runbook_task_id -ne "")) {
+                    Write-Host "Making a POST request"
+                    Write-Host "URL: " $apiUrl
+                    Write-Host "Headers: " $headers
+                    Write-Host "Body: " $jsonBody
+                    $response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
+                    Write-Host ($response | ConvertTo-Json -Depth 4)    
+                } else {
+                    Write-Host "Runbook task ID was NOT specified"
+                }
 
                 # Keep listening for messages in a loop
                 Write-Host "Listening for incoming messages..."
@@ -261,7 +324,7 @@ $proxy_block = {
 
                             #Set-Content -Path $current_job_file -Value "Starting..."
                             if (-not $global:modal_box_visible) {
-                                Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_ws, $proxy_domain, $runbook_task_id, $token, $current_job_file
+                                Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url
                                 $global:modal_box_visible = $true
                             }
 
