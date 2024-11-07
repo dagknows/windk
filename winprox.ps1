@@ -20,10 +20,8 @@ if ($pattern.Success) {
     Write-Host "No match found."
 }
 
-# Register the handler for the CTRL+C event
-
 $dialogScript = {
-    param($proxy_ws, $proxy_domain, $runbook_task_id, $token, $current_job_file)
+    param($proxy_ws, $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id)
     # Use a suitable dialog method, like a custom function or a .NET dialog
     Add-Type -AssemblyName System.Windows.Forms
 
@@ -48,34 +46,55 @@ $dialogScript = {
     $timer = New-Object System.Windows.Forms.Timer
     $timer.Interval = 1000
     $content = ""
+    $problemResolvedBtn 
+    $problemResolvedBtn = New-Object System.Windows.Forms.Button
+    $problemResolvedBtn.Text = "Problem resolved"
+    $problemResolvedBtn.Top = 70
+    $problemResolvedBtn.Left = 70
+    $problemResolvedBtn.Width = 150
+    $problemResolvedBtn.Add_Click({ 
+        $form.Close() 
+        $host.SetShouldExit(1)
+    })
+    $problemResolvedButtonVisible = $false
+
+    $problemNotResolvedButton = New-Object System.Windows.Forms.Button
+    $problemNotResolvedButton.Text = "Not resolved (Create Ticket)"
+    $problemNotResolvedButton.Top = 70
+    $problemNotResolvedButton.Left = 240  # Position it next to the first button
+    $problemNotResolvedButton.Width = 160  # Specify the width of the second button
+    $problemNotResolvedButton.Add_Click({
+        # Add action for the "Resolved" button here
+        Write-Host "Ticket created."  # Placeholder for ticket creation logic
+        $label.Text = "Ticket created."
+        $timer.Stop()
+        $problemResolvedBtn.Text = "OK"
+        $problemNotResolvedButton.Visible = $false
+        $problemNotResolvedButton.Hide()
+        $form.Controls.Remove($problemNotResolvedButton)
+        $problemNotResolvedButton.Dispose()
+        #$form.Hide()
+        $form.Invalidate()
+        $form.Update()
+        $form.Refresh()
+        #$form.Close()
+        #$host.SetShouldExit(1)
+    })
+    $problemNotResolvedButtonVisible = $false 
+
     $timer.Add_Tick({
         $content = Get-Content -Path $current_job_file -Raw
         $label.Text = $content
 
         if (($content.StartsWith("Ticket")) -or ($content.StartsWith("Runbook finished"))) {
-            $button = New-Object System.Windows.Forms.Button
-            $button.Text = "Problem resolved"
-            $button.Top = 70
-            $button.Left = 70
-            $button.Width = 150
-            $button.Add_Click({ 
-                $form.Close() 
-                $host.SetShouldExit(1)
-            })
-            $form.Controls.Add($button)    
+            if (-not $problemResolvedButtonVisible) {
+                $form.Controls.Add($problemResolvedBtn)
+                $problemResolvedButtonVisible = $true
+            }
 
-            $notResolvedButton = New-Object System.Windows.Forms.Button
-            $notResolvedButton.Text = "Not resolved (Create Ticket)"
-            $notResolvedButton.Top = 70
-            $notResolvedButton.Left = 240  # Position it next to the first button
-            $notResolvedButton.Width = 160  # Specify the width of the second button
-            $notResolvedButton.Add_Click({
-                # Add action for the "Resolved" button here
-                Write-Host "Ticket created."  # Placeholder for ticket creation logic
-                $form.Close()
-                $host.SetShouldExit(1)
-            })
-            $form.Controls.Add($notResolvedButton)
+            if (-not $problemNotResolvedButtonVisible) {
+                $form.Controls.Add($problemNotResolvedButton)
+            }
         }
     
     })
@@ -241,7 +260,10 @@ $proxy_block = {
                             Write-Host "Full path:" $fullPath
 
                             #Set-Content -Path $current_job_file -Value "Starting..."
-                            Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_ws, $proxy_domain, $runbook_task_id, $token, $current_job_file
+                            if (-not $global:modal_box_visible) {
+                                Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_ws, $proxy_domain, $runbook_task_id, $token, $current_job_file
+                                $global:modal_box_visible = $true
+                            }
 
                             & $fullPath  
 
@@ -288,6 +310,7 @@ if ($proxy_secure) {
     $proxy_http = "https://"
 }
 
-
+$global:modal_box_visible = $false
 $proxy_block.Invoke($runbook_task_id, $proxy_ws, $proxy_http, $proxy_domain, $token, $PSScriptRoot)
+
 
