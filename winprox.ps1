@@ -126,7 +126,7 @@ $dialogScript = {
         $form.Invalidate()
         $form.Update()
         $form.Refresh()
-        Start-Sleep -Second 10
+        Start-Sleep -Second 4
         $label.Text = "Ticket created."
         $problemResolvedButton.Visible = $true
         $form.Invalidate()
@@ -322,7 +322,7 @@ $proxy_block = {
                             $streamWriter.Close()
                             Write-Host "Full path:" $fullPath
 
-                            #Set-Content -Path $current_job_file -Value "Starting..."
+                            Set-Content -Path $current_job_file -Value "Starting..."
                             if (-not $global:modal_box_visible) {
                                 Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url
                                 $global:modal_box_visible = $true
