@@ -143,7 +143,10 @@ $dialogScript = {
 
     $timer.Add_Tick({
         $content = Get-Content -Path $current_job_file -Raw
-        $label.Text = $content
+        $content = $content.Trim() 
+        if ($content -ne "") {
+            $label.Text = $content
+        }
 
         if (($content.StartsWith("Ticket")) -or ($content.StartsWith("Runbook finished"))) {
             if (-not $problemResolvedButtonVisible) {
@@ -322,11 +325,13 @@ $proxy_block = {
                             $streamWriter.Close()
                             Write-Host "Full path:" $fullPath
 
-                            Set-Content -Path $current_job_file -Value "Starting..."
+                            #Set-Content -Path $current_job_file -Value ""
                             if (-not $global:modal_box_visible) {
                                 Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url
                                 $global:modal_box_visible = $true
                             }
+
+                            $fullPath > "debug.txt"
 
                             & $fullPath  
 
@@ -335,8 +340,8 @@ $proxy_block = {
                             # file so that base on the content of this file, the dialog box can display appropriate buttons.
                             $content = Get-Content -Path $current_job_file -Raw
                             if (! $content.StartsWith("Ticket")) {
-                                Set-Content -Path $current_job_file -Value "Runbook finished.  Please check if the problem has been resolved."
                             }
+                            #Set-Content -Path $current_job_file -Value "Runbook finished.  Please check if the problem has been resolved."
                             #$websocket.Dispose()  
                         }
                         $receivedData.SetLength(0) # Clear the MemoryStream for the next message
@@ -393,3 +398,4 @@ if ($proxy_secure) {
 $global:modal_box_visible = $false
 $proxy_block.Invoke($runbook_task_id, $proxy_ws, $proxy_http, $proxy_domain, $token, $PSScriptRoot)
 
+Start-Sleep -Seconds 120
