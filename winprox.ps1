@@ -366,7 +366,8 @@ $proxy_block = {
 
                             $fullPath >> $debug_file
 
-                            & $fullPath  
+                            # & $fullPath  
+                            Start-Job -ScriptBlock { & $using:fullPath }
 
                             #$websocket.Dispose()  
                         }
