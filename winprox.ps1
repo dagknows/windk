@@ -146,10 +146,16 @@ $dialogScript = {
 
         $problemNotResolvedButtonVisible = $false 
 
-
-
         $timer.Add_Tick({
-            $content = Get-Content -Path $current_job_file -Raw
+            $content = ""
+            #$content = Get-Content -Path $current_job_file -Raw
+            $firstLine = Get-Content -Path $current_job_file -TotalCount 1
+            $lastLine = Get-Content -Path $current_job_file | Select-Object -Last 1
+            if ($firstLine.Trim() -eq $lastLine.Trim()) {
+                $content = $firstLine
+            } else {
+                $content = $firstLine + $lastLine
+            }
             $content = $content.Trim() 
             if ($content -ne "") {
                 $label.Text = $content
