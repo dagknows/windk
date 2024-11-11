@@ -271,9 +271,9 @@ $proxy_block = {
 
         try {
             # Connect to the WebSocket server
-            Write-Host "Really trying"
+            #Write-Host "Really trying"
             $websocket.ConnectAsync($uri, [Threading.CancellationToken]::None).Wait()
-            Write-Host "Done waiting"
+            #Write-Host "Done waiting"
 
             if ($websocket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                 Write-Host "WebSocket connection established."
@@ -303,10 +303,10 @@ $proxy_block = {
                 if (($null -ne $runbook_task_id) -and ($runbook_task_id -ne "")) {
                     Write-Host "Making a POST request"
                     Write-Host "URL: " $apiUrl
-                    Write-Host "Headers: " $headers
-                    Write-Host "Body: " $jsonBody
+                    #Write-Host "Headers: " $headers
+                    #Write-Host "Body: " $jsonBody
                     $response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
-                    Write-Host ($response | ConvertTo-Json -Depth 4)    
+                    #Write-Host ($response | ConvertTo-Json -Depth 4)    
                 } else {
                     Write-Host "Runbook task ID was NOT specified"
                 }
@@ -423,9 +423,9 @@ $proxy_secure = $Env:PROXY_SECURE.Trim().ToLower().Trim("'").Trim('"')
 #$proxy_domain = "dev.dagknows.com"
 #$token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkYWdrbm93cy5jb20iLCJzdWIiOiJzYXJhbmdAZGFna25vd3MuY29tIiwibmJmIjoxNzMwMDkwNzE4LCJleHAiOjE3NjE2MjY4OTgsImp0aSI6Imd2U2I2U21iU2FSUzR6RlYiLCJhdWQiOiJkYWdrbm93cyIsInJvbGUiOiJzdXByZW1vIiwidXNlcl9jbGFpbXMiOnsidWlkIjoiMSIsInVuYW1lIjoic2FyYW5nQGRhZ2tub3dzLmNvbSIsIm9yZyI6ImRhZ2tub3dzIiwiZmlyc3RfbmFtZSI6IlNhcmFuZyIsImxhc3RfbmFtZSI6IkRoYXJtYXB1cmlrYXIiLCJyb2xlIjoiU3VwcmVtbyIsImFlc19rZXkiOiIxLVxuTURCTEMtOEx0ZkF1cm9sOUNHMExcbmZLTEIzclxudSIsIm9mc3QiOlszMTQsNDI2LDkxLDEzNCw0MjAsNDI0LDI3NywxOTcsNDQ5LDMzNiw0MzgsMzQ1LDMwMSw0MDUsMTAyLDE4OSwxNTksMTc0LDQwNiw2NiwzMDgsMzc0LDQzOCw0MjUsMTg1LDY1LDI3Nyw5MCwyMDAsMzg0LDIyMSwxMTZdfX0.hm2QvlTSsHslkrT9Db0lEZcs_qcrm2xkGp_pXahuYLfnhuYSfUkc7GeoynoKX2J37DJPaEglNKkEaJKL4rbxlX7kPVHD6ElKc8Se_csNOAHzTQf4h013be-uAaeC2Uo7Pb4ZO5uwquHi2Jqz0LbdtWOtlCFjIjOGugLK26rChJjFfqVLERYsgOXjaTwVqOGUfhT-OFJDaoBbHZAmrIB-UkkMKdIBKcto0DwQSOeyj4nv69htrLrGUheuHQkfE9gEKlaqWyynzx0MZIStjPkPheMzbk-AajrDO5GbaCh46AZEs_zl2_kq1OcgyC0QFrL2Wm5wsQ_gt7XhsMyMbvkOgQ"
 
-Write-Host "PROXY_DOMAIN: " $proxy_domain 
-Write-Host "PROXY_SECURE: " $proxy_secure
-Write-Host "PROXY_TOKEN: " $token
+#Write-Host "PROXY_DOMAIN: " $proxy_domain 
+#Write-Host "PROXY_SECURE: " $proxy_secure
+#Write-Host "PROXY_TOKEN: " $token
 
 #$proxy_secure = $true
 #$proxy_secure = [System.Boolean]::Parse($proxy_secure)
@@ -443,12 +443,12 @@ if ($proxy_secure) {
     $proxy_http = "https://"
 }
 
-Write-Host "VERSION: " $PSVersionTable.PSVersion
+#Write-Host "VERSION: " $PSVersionTable.PSVersion
 
 $global:modal_box_visible = $false
 $global:dialog_job = $null
 $proxy_block.Invoke($runbook_task_id, $proxy_ws, $proxy_http, $proxy_domain, $token, $PSScriptRoot)
-Write-Host "Please respond to the appropriate option in the dialog."
+#Write-Host "Please respond to the appropriate option in the dialog."
 Wait-Job -Job $global:dialog_job
 
 Start-Sleep -Seconds 120
