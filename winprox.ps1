@@ -45,11 +45,19 @@ $dialogScript = {
         # Create a Label to display the message
         $label = New-Object System.Windows.Forms.Label
         $label.Text = "Starting."
-        #$label.Text = $global:dialog_message
         $label.AutoSize = $true
         $label.Top = 30
         $label.Left = 50
         $form.Controls.Add($label)
+
+        # Second label to display the secondary message to prevent the illusion of getting stucked
+        # (for long running task, try to display the last line of output)
+        $sedondLabel = New-Object System.Windows.Forms.Label
+        $sedondLabel.Text = ""
+        $sedondLabel.AutoSize = $true
+        $sedondLabel.Top = 50
+        $sedondLabel.Left = 50
+        $form.Controls.Add($sedondLabel)        
 
         # Add a button to close the form
         $timer = New-Object System.Windows.Forms.Timer
@@ -147,21 +155,25 @@ $dialogScript = {
         $problemNotResolvedButtonVisible = $false 
 
         $timer.Add_Tick({
-            $content = ""
             #$content = Get-Content -Path $current_job_file -Raw
             $firstLine = Get-Content -Path $current_job_file -TotalCount 1
             $lastLine = Get-Content -Path $current_job_file | Select-Object -Last 1
-            if ($firstLine.Trim() -eq $lastLine.Trim()) {
-                $content = $firstLine
-            } else {
-                $content = $firstLine + $lastLine
+            $firstLine = $firstLine.Trim()
+            $lastLine = $lastLine.Trim() 
+
+            if ($firstLine -eq $lastLine) {
+                $lastLine = ""
             }
-            $content = $content.Trim() 
-            if ($content -ne "") {
-                $label.Text = $content
+
+            $current_timestamp = Get-Date -Format "hh:mm:ss"
+            $lastLine = $lastLine + " " + $current_timestamp
+
+            if ($firstLine -ne "") {
+                $label.Text = $firstLine
             }
+            $sedondLabel.Text = $lastLine
     
-            if ($content.StartsWith("Runbook finished")) {
+            if ($firstLine.StartsWith("Runbook finished")) {
                 if (-not $problemResolvedButtonVisible) {
                     $form.Controls.Add($problemResolvedButton)
                     $problemResolvedButtonVisible = $true
