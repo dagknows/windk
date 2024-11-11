@@ -62,7 +62,6 @@ $dialogScript = {
         # Add a button to close the form
         $timer = New-Object System.Windows.Forms.Timer
         $timer.Interval = 1000
-        $content = ""
         $problemResolvedButton = New-Object System.Windows.Forms.Button
         $problemResolvedButton.Text = "Problem resolved"
         $problemResolvedButton.Top = 70
@@ -165,6 +164,10 @@ $dialogScript = {
                 $lastLine = ""
             }
 
+            $firstLine = if ($firstLine.Length -gt 70) { $firstLine.Substring(0, 70) } else { $firstLine }
+
+            $lastLine = $lastLine.Substring([math]::Max(0, $lastLine.Length - 60)) # Display only the last 10 characters
+            $lastLine = ($lastLine -split ' ', 2)[1] # Remove the first word that is not complete.
             $current_timestamp = Get-Date -Format "hh:mm:ss"
             $lastLine = $lastLine + " " + $current_timestamp
 
