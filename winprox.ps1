@@ -36,7 +36,7 @@ $dialogScript = {
 
     try {
         $form = New-Object System.Windows.Forms.Form
-        $form.Text = "Dell Troubleshooting"
+        $form.Text = "Dagknows Troubleshooting"
         $form.Width = 470
         $form.Height = 150
         $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
