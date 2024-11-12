@@ -30,7 +30,7 @@ function createTicket {
 }
 
 $dialogScript = {
-    param($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
+    param($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
     # Use a suitable dialog method, like a custom function or a .NET dialog
     Add-Type -AssemblyName System.Windows.Forms
 
@@ -41,6 +41,11 @@ $dialogScript = {
         $form.Height = 150
         $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
         $form.TopMost = $true
+        #$form.ControlBox = $false
+
+        $form.Add_FormClosing({
+            Set-Content -Path "$exit_file" -Value "Exit now"
+        })
 
         # Create a Label to display the message
         $label = New-Object System.Windows.Forms.Label
@@ -68,6 +73,7 @@ $dialogScript = {
         $problemResolvedButton.Left = 70
         $problemResolvedButton.Width = 150
         $problemResolvedButton.Add_Click({ 
+            Set-Content -Path "$exit_file" -Value "Exit now"
             $form.Close() 
             $host.SetShouldExit(1)
         })
@@ -82,6 +88,75 @@ $dialogScript = {
         $problemNotResolvedButton.Add_Click({
             # Add action for the "Resolved" button here
             $createTicketScriptBlock = {
+                function getEnvVar {
+                    param (
+                        [Parameter(Mandatory=$true)]
+                        [string]$key
+                    )
+                    return [System.Environment]::GetEnvironmentVariable($key)
+                }                
+
+                # First, get the title of the original runbook task
+                $apiUrl = $dagknows_url + "/api/tasks/" + $runbook_task_id + ""
+                $headers = @{
+                    "Content-Type" = "application/json"
+                    "Authorization" = "Bearer $token"
+                }
+                $response = Invoke-RestMethod -Uri $apiUrl -Method GET -Headers $headers 
+                $runbook_task_title = $response.task.title
+                
+                $jiraUserName = getEnvVar("JIRA_USER_NAME")
+                $jiraApiKey = getEnvVar("JIRA_API_KEY")
+                $jiraBaseUrl = getEnvVar("JIRA_BASE_URL")
+                
+                $projectKey = "DD"
+                $issueType = "Task"
+                # Define the API endpoint for creating an issue
+                $ticketUrl = "$jiraBaseUrl/rest/api/2/issue/"
+                
+                # Prepare the headers and payload for the request
+                $combo = $jiraUserName + ":" + $jiraApiKey
+                $authValue = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes($combo))
+                $headers = @{
+                    "Content-Type" = "application/json"
+                    "Accept" = "application/json"
+                    "Authorization" = "Basic $authValue"
+                }
+                
+                $projectUrl = "$jiraBaseUrl/rest/api/2/issue/createmeta?projectKeys=$projectKey"
+                # Job URL should be referencing the original $runbook_task_id not the ticket_task_id
+                $job_url = "$dagknows_url/tasks/$($runbook_task_id)?job_id=$job_id&iter=0"
+                $ticket_body = "User:`n$($user_info.("first_name")) $($user_info.("last_name"))`nIssue:$runbook_task_title`nInfo:$job_url"
+                $summary = $runbook_task_title
+                $description = $ticket_body
+                
+                $payload = @{
+                    fields = @{
+                        project = @{
+                            key = $projectKey
+                        }
+                        summary = $summary
+                        description = $description
+                        issuetype = @{
+                            name = $issueType
+                        }
+                    }
+                } | ConvertTo-Json -Depth 10
+                
+                Add-Content -Path "$debug_file" -Value "Ticket URL: $ticketUrl"
+                Add-Content -Path "$debug_file" -Value "Payload: $payload"
+                Add-Content -Path "$debug_file" -Value "jiraUserName: $jiraUserName, jiraApiKey: $jiraApiKey, jiraBaseUrl: $jiraBaseUrl"
+                # Make the POST request to create the Jira ticket
+                $response = Invoke-RestMethod -Uri $ticketUrl -Headers $headers -Method Post -Body $payload
+
+                if ($response -and $response.key) {
+                    $ticketId = $response.key
+                    Set-Content -Path "$current_job_file" -Value "Ticket created: $ticketId"
+                    Add-Content -Path "$debug_file" -Value "Ticket ID: $ticketId"
+                    Write-Output $ticketId
+                }
+
+                <#
                 param($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
     
                 $ticket_task_id = $Env:TICKET_TASK_ID
@@ -119,12 +194,13 @@ $dialogScript = {
                     $apiUrl = $dagknows_url + "/api/tasks/" + $ticket_task_id + "/execute"
                     $response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
                 }
+                #>
             } # Endo of $createTicketScriptBlock
     
             # If the user clicked on the "Create Ticket" button, invoke the $createTicketScriptBlock
             # update the message, change label on button, show / hide buttons, and refresh the form 
             # to update the display
-            $createTicketScriptBlock.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
+            $result = $createTicketScriptBlock.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
     
             $timer.Stop()
             $label.Text = "Creating ticket."
@@ -138,7 +214,7 @@ $dialogScript = {
             $form.Update()
             $form.Refresh()
             Start-Sleep -Second 4
-            $label.Text = "Ticket created."
+            $label.Text = "Ticket created:" + $result
             $problemResolvedButton.Visible = $true
             $form.Invalidate()
             $form.Update()
@@ -166,8 +242,11 @@ $dialogScript = {
 
             $firstLine = if ($firstLine.Length -gt 70) { $firstLine.Substring(0, 70) } else { $firstLine }
 
-            $lastLine = $lastLine.Substring([math]::Max(0, $lastLine.Length - 60)) # Display only the last 10 characters
-            $lastLine = ($lastLine -split ' ', 2)[1] # Remove the first word that is not complete.
+            if ($lastLine.Length -gt 60) {
+                $lastLine = $lastLine.Substring([math]::Max(0, $lastLine.Length - 60)) # Display only the last 10 characters
+                $lastLine = ($lastLine -split ' ', 2)[1] # Remove the first word that is not complete.    
+            }
+
             $current_timestamp = Get-Date -Format "hh:mm:ss"
             $lastLine = $lastLine + " " + $current_timestamp
 
@@ -252,8 +331,10 @@ $proxy_block = {
             [string]$proxy_http,
             [string]$proxy_domain,
             [string]$token,
-            [string]$working_directory
+            [string]$working_directory,
+            [string]$exit_file
         )
+
 
         # Define your Bearer token
         # Define the WebSocket server URI (ensure it starts with wss:// for a secure connection)
@@ -340,7 +421,8 @@ $proxy_block = {
                         $receivedJsonPretty = $receivedJson | ConvertTo-Json -Depth 4
                         # Write-Host "Message received: $receivedJsonPretty"
                         $debug_file = Join-Path -Path $working_directory -ChildPath "debug.txt" 
-                        $receivedJsonPretty > "debug.txt"
+                        "" > $debug_file
+                        #$receivedJsonPretty > $debug_file
                         $user_info = $receivedJson.message.user_info
                         $conv_id = $receivedJson.message.req.req_obj.conv_id
                         $iter = $receivedJson.message.req.req_obj.iter
@@ -381,16 +463,20 @@ $proxy_block = {
                             
                             if (-not $global:modal_box_visible) {
                                 Set-Content -Path $current_job_file -Value " "
-                                $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url
+                                $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
                                 $global:modal_box_visible = $true
                             }
 
-                            $fullPath >> $debug_file
+                            #$fullPath >> $debug_file
 
-                            # & $fullPath  
-                            Start-Job -ScriptBlock { & $using:fullPath }
+                            #Write-Host "BEFORE RUNNING THE PROGRAM"
+                            #& $fullPath  
+                            $task_job = Start-Job -ScriptBlock { & $using:fullPath }
+                            Wait-Job -Job $task_job
+                            #Write-Host "AFTER RUNNING THE PROGRAM"
 
                             #$websocket.Dispose()  
+                            break
                         }
                         $receivedData.SetLength(0) # Clear the MemoryStream for the next message
                     }
@@ -406,12 +492,31 @@ $proxy_block = {
         }
         finally {
             # Dispose of the WebSocket instance
+            Write-Host "Websocket connection disposed inside the finally block"
             $websocket.Dispose()
         }
     }
 
     #Write-Host "runbook_task_id: $runbook_task_id, proxy_ws: $proxy_ws, proxy_http: $proxy_http, proxy_domain: $proxy_domain, WORKING_DIRECTORY: $working_directory"
-    Start-WebSocketListener -runbook_task_id $runbook_task_id -proxy_ws $proxy_ws -proxy_http $proxy_http -proxy_domain $proxy_domain -token $token -working_directory $working_directory
+    $exit_file = Join-Path -Path $working_directory -ChildPath "exit.txt" 
+    # We are using multiple background jobs, and using file to determine when the main process should terminate
+    # Before we start, remove the exit file
+    if (Test-Path -Path $exit_file) {
+        Remove-Item -Path $exit_file
+    }
+
+    Start-WebSocketListener -runbook_task_id $runbook_task_id -proxy_ws $proxy_ws -proxy_http $proxy_http -proxy_domain $proxy_domain -token $token -working_directory $working_directory -exit_file $exit_file
+
+    # While the exit file is not present, sleep and wait for it.
+    # The exit file is only created if the user interact with the dialog
+    while(-not (Test-Path $exit_file)) {
+        Start-Sleep -Seconds 2
+    }
+
+    # Now that the exit file is present, clean up (remove it and gracefully terminate)
+    if (Test-Path -Path $exit_file) {
+        Remove-Item -Path $exit_file
+    }
 }
 
 
@@ -449,6 +554,3 @@ $global:modal_box_visible = $false
 $global:dialog_job = $null
 $proxy_block.Invoke($runbook_task_id, $proxy_ws, $proxy_http, $proxy_domain, $token, $PSScriptRoot)
 #Write-Host "Please respond to the appropriate option in the dialog."
-Wait-Job -Job $global:dialog_job
-
-Start-Sleep -Seconds 120
