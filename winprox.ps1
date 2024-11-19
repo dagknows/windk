@@ -33,13 +33,16 @@ $dialogScript = {
     param($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
     # Use a suitable dialog method, like a custom function or a .NET dialog
     Add-Type -AssemblyName System.Windows.Forms
+    #Add-Type -AssemblyName System.Windows.Forms.LinkLabel
 
     try {
         $form = New-Object System.Windows.Forms.Form
         $form.Text = "Dagknows Troubleshooting"
         $form.Width = 470
         $form.Height = 150
-        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+        #$form.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+        $form.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
+        $form.Location = New-Object System.Drawing.Point(200, 200)
         $form.TopMost = $true
         #$form.ControlBox = $false
 
@@ -63,6 +66,15 @@ $dialogScript = {
         $sedondLabel.Top = 50
         $sedondLabel.Left = 50
         $form.Controls.Add($sedondLabel)        
+
+        $ticketLabel = New-Object System.Windows.Forms.LinkLabel
+        $ticketLabel.Text = ""  
+        $ticketLabel.AutoSize = $true
+        $ticketLabel.Top = 30
+        $ticketLabel.Left = 150
+        $ticketLabel.Visible = $false
+        $form.Controls.Add($ticketLabel)
+
 
         # Add a button to close the form
         $timer = New-Object System.Windows.Forms.Timer
@@ -214,7 +226,33 @@ $dialogScript = {
             $form.Update()
             $form.Refresh()
             Start-Sleep -Second 4
-            $label.Text = "Ticket created:" + $result
+            $label.Text = "Ticket created:"
+
+            # Create a LinkLabel to display a hyperlink
+            $ticketLabel.Text = $result
+
+            # Handle the LinkClicked event
+            $ticketLabel.Add_LinkClicked({
+                param($sender, $eventArgs)
+    
+                # Retrieve the LinkData safely
+                if ($eventArgs.Link -ne $null -and $eventArgs.Link.LinkData -ne $null) {
+                    # Check if the left mouse button was used
+                    if ($eventArgs.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+                        Start-Process $eventArgs.Link.LinkData
+                    }
+                } else {
+                    Write-Host "No valid link data available."
+                }
+            })
+            $ticketLabel.LinkArea = New-Object System.Windows.Forms.LinkArea(0, $result.Length) # Specify which part of the text is clickable    
+            $ticketLabel.Links[0].LinkData = "https://dagknows.atlassian.net/issues/" + $result # URL to open.  Hard-coding the URL here for now
+
+            #$ticketLabel.Links.Clear() # Clear existing links to avoid duplication
+            #$ticketLabel.Links.Add(0, $result.Length, "https://dagknows.atlassian.net/issues/" + $result) # Add link with proper range and data
+            $ticketLabel.Visible = $true
+            $ticketLabel.Show()
+
             $problemResolvedButton.Visible = $true
             $form.Invalidate()
             $form.Update()
@@ -464,6 +502,7 @@ $proxy_block = {
                             if (-not $global:modal_box_visible) {
                                 Set-Content -Path $current_job_file -Value " "
                                 $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
+                                #$dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
                                 $global:modal_box_visible = $true
                             }
 
@@ -517,6 +556,8 @@ $proxy_block = {
     if (Test-Path -Path $exit_file) {
         Remove-Item -Path $exit_file
     }
+
+    Start-Sleep -Seconds 2 # Sleep for 2 more seconds to avoid the error with the dialog (wait for the dialog job to dispose itself)
 }
 
 
