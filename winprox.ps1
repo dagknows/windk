@@ -155,16 +155,16 @@ $dialogScript = {
                     }
                 } | ConvertTo-Json -Depth 10
                 
-                Add-Content -Path "$debug_file" -Value "Ticket URL: $ticketUrl"
-                Add-Content -Path "$debug_file" -Value "Payload: $payload"
-                Add-Content -Path "$debug_file" -Value "jiraUserName: $jiraUserName, jiraApiKey: $jiraApiKey, jiraBaseUrl: $jiraBaseUrl"
+                #Add-Content -Path "$debug_file" -Value "Ticket URL: $ticketUrl"
+                #Add-Content -Path "$debug_file" -Value "Payload: $payload"
+                #Add-Content -Path "$debug_file" -Value "jiraUserName: $jiraUserName, jiraApiKey: $jiraApiKey, jiraBaseUrl: $jiraBaseUrl"
                 # Make the POST request to create the Jira ticket
                 $response = Invoke-RestMethod -Uri $ticketUrl -Headers $headers -Method Post -Body $payload
 
                 if ($response -and $response.key) {
                     $ticketId = $response.key
-                    Set-Content -Path "$current_job_file" -Value "Ticket created: $ticketId"
-                    Add-Content -Path "$debug_file" -Value "Ticket ID: $ticketId"
+                    #Set-Content -Path "$current_job_file" -Value "Ticket created: $ticketId"
+                    #Add-Content -Path "$debug_file" -Value "Ticket ID: $ticketId"
                     Write-Output $ticketId
                 }
 
@@ -268,9 +268,11 @@ $dialogScript = {
         $problemNotResolvedButtonVisible = $false 
 
         $timer.Add_Tick({
+            $firstLine = ""
+            $lastLine = ""
             #$content = Get-Content -Path $current_job_file -Raw
-            $firstLine = Get-Content -Path $current_job_file -TotalCount 1
-            $lastLine = Get-Content -Path $current_job_file | Select-Object -Last 1
+            #$firstLine = Get-Content -Path $current_job_file -TotalCount 1
+            #$lastLine = Get-Content -Path $current_job_file | Select-Object -Last 1
             $firstLine = $firstLine.Trim()
             $lastLine = $lastLine.Trim() 
 
@@ -470,7 +472,7 @@ $proxy_block = {
                             $receivedJsonPretty = $receivedJson | ConvertTo-Json -Depth 4
                             # Write-Host "Message received: $receivedJsonPretty"
                             $debug_file = Join-Path -Path $working_directory -ChildPath "debug.txt" 
-                            "" > $debug_file
+                            #"" > $debug_file
                             #$receivedJsonPretty > $debug_file
                             $user_info = $receivedJson.message.user_info
                             $conv_id = $receivedJson.message.req.req_obj.conv_id
@@ -511,7 +513,7 @@ $proxy_block = {
                                 Write-Host "Full path:" $fullPath
                                 
                                 if (-not $global:modal_box_visible) {
-                                    Set-Content -Path $current_job_file -Value " "
+                                    #Set-Content -Path $current_job_file -Value " "
                                     $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
                                     #$dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
                                     $global:modal_box_visible = $true
