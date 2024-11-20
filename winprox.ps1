@@ -52,7 +52,7 @@ $dialogScript = {
 
         # Create a Label to display the message
         $label = New-Object System.Windows.Forms.Label
-        $label.Text = "Starting."
+        $label.Text = "Runbook finished"
         $label.AutoSize = $true
         $label.Top = 30
         $label.Left = 50
@@ -268,7 +268,7 @@ $dialogScript = {
         $problemNotResolvedButtonVisible = $false 
 
         $timer.Add_Tick({
-            $firstLine = ""
+            $firstLine = "Runbook finished"
             $lastLine = ""
             #$content = Get-Content -Path $current_job_file -Raw
             #$firstLine = Get-Content -Path $current_job_file -TotalCount 1
@@ -293,7 +293,8 @@ $dialogScript = {
             if ($firstLine -ne "") {
                 $label.Text = $firstLine
             }
-            $sedondLabel.Text = $lastLine
+            #$sedondLabel.Text = $lastLine
+            $sedondLabel.Text = ""
     
             if ($firstLine.StartsWith("Runbook finished")) {
                 if (-not $problemResolvedButtonVisible) {
@@ -399,10 +400,8 @@ $proxy_block = {
             if ($websocket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                 Write-Host "WebSocket connection established."
 
-                $params = @{
-                    "x" = 3
-                    "y" = 5
-                }
+                $params = @{} # These jobs typically do not take parameters.  If they do, we need to parse these parameters from the URL somehow.
+
                 # Now make a request.
                 $conv_id = "tconv_" + $runbook_task_id
                 $headers = @{
@@ -512,12 +511,6 @@ $proxy_block = {
                                 $streamWriter.Close()
                                 Write-Host "Full path:" $fullPath
                                 
-                                if (-not $global:modal_box_visible) {
-                                    #Set-Content -Path $current_job_file -Value " "
-                                    $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
-                                    #$dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
-                                    $global:modal_box_visible = $true
-                                }
     
                                 #$fullPath >> $debug_file
     
@@ -533,6 +526,12 @@ $proxy_block = {
                                 #$output >> $debug_file
 
                                 #Remove-Job -Job $task_job
+
+                                if (-not $global:modal_box_visible) {
+                                    $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
+                                    #$dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
+                                    $global:modal_box_visible = $true
+                                }
     
                                 #$websocket.Dispose()  
                                 #break
