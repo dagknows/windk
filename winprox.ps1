@@ -268,7 +268,7 @@ $dialogScript = {
         $problemNotResolvedButtonVisible = $false 
 
         $timer.Add_Tick({
-            $firstLine = "Runbook finished"
+            $firstLine = "Runbook finished.  Please confirm if the problem has been resolved."
             $lastLine = ""
             #$content = Get-Content -Path $current_job_file -Raw
             #$firstLine = Get-Content -Path $current_job_file -TotalCount 1
@@ -554,8 +554,10 @@ $proxy_block = {
         }
         finally {
             # Dispose of the WebSocket instance
-            Write-Host "Websocket connection disposed inside the finally block"
-            $websocket.Dispose()
+            # The finally block is always invoked, so if we want the proxy to be persistent, do not dispose the websocket.
+            # Write-Host "Websocket connection disposed inside the finally block"
+            # $websocket.Dispose()
+            ;
         }
     }
 
