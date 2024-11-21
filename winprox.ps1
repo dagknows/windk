@@ -35,6 +35,8 @@ $dialogScript = {
     Add-Type -AssemblyName System.Windows.Forms
     #Add-Type -AssemblyName System.Windows.Forms.LinkLabel
 
+    $global:buttonClicked = $null  # Variable to store which button was clicked
+
     try {
         $form = New-Object System.Windows.Forms.Form
         $form.Text = "Dagknows Troubleshooting"
@@ -45,10 +47,6 @@ $dialogScript = {
         $form.Location = New-Object System.Drawing.Point(200, 200)
         $form.TopMost = $true
         #$form.ControlBox = $false
-
-        $form.Add_FormClosing({
-            Set-Content -Path "$exit_file" -Value "Exit now"
-        })
 
         # Create a Label to display the message
         $label = New-Object System.Windows.Forms.Label
@@ -83,9 +81,18 @@ $dialogScript = {
         $problemResolvedButton.Left = 70
         $problemResolvedButton.Width = 150
         $problemResolvedButton.Add_Click({ 
-            Set-Content -Path "$exit_file" -Value "Exit now"
-            $form.Close() 
-            $host.SetShouldExit(1)
+            if ($global:buttonClicked -eq $null) {
+                # Currently, this button is shared in both scenarios, "Problem resolved" and "Not resolved".
+                # So, if the user clicked on "Not resolved" first, don't change its value here, so that we 
+                # know which button was clicked and perform appropriate action.
+                # If the user clicked on "Problem resolved" first, we are supposed to shutdown the proxy.
+                # If the user clicked on "Not resolved" first, we are supposed to keep the proxy running for 
+                # some time so that the technical service engineer can perform additional action on the user 
+                # machine.  In this case, we are supposed to minimize the terminal somehow.
+                $global:buttonClicked = "problem_resolved"
+            }
+            # Set-Content -Path "$exit_file" -Value "problem_resolved"
+            $form.Close();
         })
         $problemResolvedButtonVisible = $false
 
@@ -96,6 +103,7 @@ $dialogScript = {
         $problemNotResolvedButton.Left = 240  # Position it next to the first button
         $problemNotResolvedButton.Width = 160  # Specify the width of the second button
         $problemNotResolvedButton.Add_Click({
+            $global:buttonClicked = "not_resolved"
             # Add action for the "Resolved" button here
             $createTicketScriptBlock = {
                 function getEnvVar {
@@ -211,6 +219,7 @@ $dialogScript = {
             # update the message, change label on button, show / hide buttons, and refresh the form 
             # to update the display
             $result = $createTicketScriptBlock.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
+            #$result = "DD-1441"
     
             $label.Text = "Creating ticket."
             $problemNotResolvedButton.Visible = $false
@@ -239,7 +248,7 @@ $dialogScript = {
                         Start-Process $eventArgs.Link.LinkData
                     }
                 } else {
-                    Write-Host "No valid link data available."
+                    #Write-Host "No valid link data available."
                 }
             })
             $ticketLabel.LinkArea = New-Object System.Windows.Forms.LinkArea(0, $result.Length) # Specify which part of the text is clickable    
@@ -259,7 +268,7 @@ $dialogScript = {
             
             #createTicket($job_id)
             #$form.Close()
-            #$host.SetShouldExit(1)
+
         }) # End of Add_Click for $problemNotResolvedButton
 
         $problemNotResolvedButtonVisible = $false 
@@ -323,6 +332,11 @@ $dialogScript = {
             $form.Activate()
         })
 
+        $form.Add_FormClosing({
+            #Set-Content -Path "$exit_file" -Value "Exit now"
+            ;
+        })
+
         $form.Add_FormClosed({ 
             #$timer.Stop() 
             ;
@@ -334,6 +348,8 @@ $dialogScript = {
     } catch {
         # Ignore the "The pipeline has been stopped" exception if it was ever thrown somehow
     }
+
+    return $global:buttonClicked
 }
 
 $proxy_block = {
@@ -424,6 +440,7 @@ $proxy_block = {
         $dagknows_url = $proxy_http + $proxy_domain
         $apiUrl = $dagknows_url + "/api/tasks/" + $runbook_task_id + "/execute"
         
+        $job_finished_count = 0
         # param($websocket, $uri, $dagknows_url, $execs_url)
 
         Write-Host "Trying to connect to ws" 
@@ -458,19 +475,36 @@ $proxy_block = {
                     Write-Host "URL: " $apiUrl
                     #Write-Host "Headers: " $headers
                     #Write-Host "Body: " $jsonBody
-                    $response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
+                    #$response = Invoke-RestMethod -Uri $apiUrl -Method POST -Headers $headers -Body $jsonBody
+
+                    $submit_job = Start-Job {
+                        # We want to start a background job to submit the job so that we do not miss any websocket event
+                        Start-Sleep -Seconds 1
+                        Invoke-RestMethod -Uri $using:apiUrl -Method POST -Headers $using:headers -Body $using:jsonBody
+                    }
+
                     #Write-Host ($response | ConvertTo-Json -Depth 4)    
                 } else {
                     Write-Host "Runbook task ID was NOT specified"
+                    # Set the below variable to true to prevent showing the dialog when the proxy is started without using dk://...
+                    $global:modal_box_visible = $true
                 }
 
                 # Keep listening for messages in a loop
                 Write-Host "Listening for incoming messages..."
                 while ($true) {
+                    if ($job_finished_count -gt 0) {
+                        # Write-Host "Finished $job_finished_count job(s)."
+                        ;
+                    }
+
+                    # Write-Host $(Get-Date) $job_finished_count
+                    
                     if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
                         #Write-Host "We intentionally disposed proxy websocket previously.  Restablishing the connection."
                         $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
                     }
+
                     try {
                         $receiveBuffer = New-Object -TypeName byte[] -ArgumentList 4096
                         $receivedData = [System.IO.MemoryStream]::new()
@@ -553,7 +587,7 @@ $proxy_block = {
 
                                 # We already got the file.  Dispose the websocket connection while we run the job.
                                 # $websocket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
-                                $websocket.Dispose()  
+                                # $websocket.Dispose()  
     
                                 #$fullPath >> $debug_file
     
@@ -563,7 +597,7 @@ $proxy_block = {
                                 } catch {
                                     #Write-Host "The job encounted an exception: $($_.Exception.Message)" 
                                 }
-                                $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+                                $job_finished_count = $job_finished_count + 1
 
                                 #$task_job = Start-Job -ScriptBlock { & $using:fullPath }
                                 #Wait-Job -Job $task_job
@@ -578,14 +612,36 @@ $proxy_block = {
 
                                 if (-not $global:modal_box_visible) {
                                     #$global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
-                                    $dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
-                                    $global:modal_box_visible = $true
+                                    $which_button = $dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
+                                    if ("problem_resolved"  -eq $which_button) {
+                                        # Write-Host "Your clicked on (A): " $which_button ".  Exiting."
+                                        # Start-Sleep -Seconds 3
+                                        Remove-Item $exit_file
+                                        exit
+                                    } else {
+                                        Clear-Host
+                                        Write-Host "For now, please minimize, but do not close this window."
+                                        Set-Content -Path "$exit_file" -Value $PID
+                                        $global:modal_box_visible = $false
+                                    }
+                                }
+
+                                # $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+
+                                if ($job_finished_count -gt 0) {
+                                    # Write-Host "Websocket re-established."
+                                    ;
                                 }
     
                                 #$websocket.Dispose()  
                                 #break
                             }
                             $receivedData.SetLength(0) # Clear the MemoryStream for the next message
+
+                            if ($job_finished_count -gt 0) {
+                                # Write-Host "receivedData.SetLength resetted."
+                                ;
+                            }
                         }
 
                     } catch {
@@ -617,23 +673,43 @@ $proxy_block = {
     # We are using multiple background jobs, and using file to determine when the main process should terminate
     # Before we start, remove the exit file
     if (Test-Path -Path $exit_file) {
-        Remove-Item -Path $exit_file
+        # If the file exists, write "exit_now" to it, and wait for the other process to exit.
+        # When the other process see this, it should write "exiting" to this file before exiting.
+        $content = Get-Content -Path $exit_file -Raw
+        $content = $content.Trim()
+        
+        #Write-Host "Content: " $content
+        if (($content -ne "running") -and ($conent -ne "exiting") -and ($content -ne "exit_now")) {
+            #Write-Host "CHECK A.  Content: " $content ", PID: " $PID
+            $processInfo = Get-Process -Id $content
+            if ($processInfo) {
+                #Write-Host "CHECK B"
+                #$processInfo | Format-List
+                #Write-Host $processInfo
+                $process = Get-CimInstance -ClassName Win32_Process | Where-Object { $_.ProcessId -eq $pid }
+                if (($process) -and ($process.CommandLine) -and ($process.CommandLine.Contains("winprox"))) {
+                    try {
+                        Stop-Process -Id $content
+                        Remove-Item $exit_file
+                    } catch {
+                        ;
+                    }
+
+                }
+            } else {
+                # The process that is captured in the exit file already terminated somehow.
+                ;
+            }
+        }
     }
+    Set-Content -Path "$exit_file" -Value "running"
+    # if (($null -ne $runbook_task_id) -and ($runbook_task_id -ne "")) {
+    #     Write-Host "RUN BOOK ID PROVIDED"
+    # } else {
+    #     Write-Host "RUN BOOK ID NOT PROVIDED"
+    # }
 
     Start-WebSocketListener -runbook_task_id $runbook_task_id -proxy_ws $proxy_ws -proxy_http $proxy_http -proxy_domain $proxy_domain -token $token -working_directory $working_directory -exit_file $exit_file
-
-    # While the exit file is not present, sleep and wait for it.
-    # The exit file is only created if the user interact with the dialog
-    while(-not (Test-Path $exit_file)) {
-        Start-Sleep -Seconds 2
-    }
-
-    # Now that the exit file is present, clean up (remove it and gracefully terminate)
-    if (Test-Path -Path $exit_file) {
-        Remove-Item -Path $exit_file
-    }
-
-    Start-Sleep -Seconds 2 # Sleep for 2 more seconds to avoid the error with the dialog (wait for the dialog job to dispose itself)
 }
 
 
