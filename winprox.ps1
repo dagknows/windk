@@ -77,8 +77,6 @@ $dialogScript = {
 
 
         # Add a button to close the form
-        $timer = New-Object System.Windows.Forms.Timer
-        $timer.Interval = 1000
         $problemResolvedButton = New-Object System.Windows.Forms.Button
         $problemResolvedButton.Text = "Problem resolved"
         $problemResolvedButton.Top = 70
@@ -214,7 +212,6 @@ $dialogScript = {
             # to update the display
             $result = $createTicketScriptBlock.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url)
     
-            $timer.Stop()
             $label.Text = "Creating ticket."
             $problemNotResolvedButton.Visible = $false
             $problemNotResolvedButton.Hide()
@@ -266,8 +263,9 @@ $dialogScript = {
         }) # End of Add_Click for $problemNotResolvedButton
 
         $problemNotResolvedButtonVisible = $false 
+    
+        $form.Add_Shown({ 
 
-        $timer.Add_Tick({
             $firstLine = "Runbook finished.  Please confirm if the problem has been resolved."
             $lastLine = ""
             #$content = Get-Content -Path $current_job_file -Raw
@@ -320,18 +318,15 @@ $dialogScript = {
             $form.Invalidate()
             $form.Update()
             $form.Refresh()
-
-            $form.TopMost = $true
-            #$form.Activate()
-
-        })
-    
-        $form.Add_Shown({ 
-            $timer.Start() 
+            
             $form.TopMost = $true
             $form.Activate()
         })
-        $form.Add_FormClosed({ $timer.Stop() })
+
+        $form.Add_FormClosed({ 
+            #$timer.Stop() 
+            ;
+        })
     
         # Show the form
         $form.ShowDialog() | Out-Null
@@ -582,8 +577,8 @@ $proxy_block = {
                                 #Remove-Job -Job $task_job
 
                                 if (-not $global:modal_box_visible) {
-                                    $global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
-                                    #$dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
+                                    #$global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
+                                    $dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
                                     $global:modal_box_visible = $true
                                 }
     
