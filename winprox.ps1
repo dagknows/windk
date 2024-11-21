@@ -365,6 +365,50 @@ $proxy_block = {
         }    
     }
 
+    function wsfe_proxy_connect {
+        param (
+            [string]$token,
+            [string]$proxy_ws,
+            [string]$proxy_domain
+        )    
+
+        $websocket = New-Object System.Net.WebSockets.ClientWebSocket
+        $websocket.Options.SetRequestHeader("Authorization", "Bearer $token")
+        $uri = [System.Uri]::new($proxy_ws + $proxy_domain + "/wsfe/proxies/agents/connect")
+
+        $itercount = 0
+        while ($itercount -lt 50) {
+            $errored = $false
+            try {
+                #Write-Host "Trying to create websocket"
+                $websocket.ConnectAsync($uri, [Threading.CancellationToken]::None).Wait()
+            } catch {
+                $errored = $true
+                #Write-Host "Error: $($_.Exception.Message)"
+                #Write-Host "URI: " $uri
+                #Write-Host "StackTrace: $($_.Exception.StackTrace)"
+            }
+
+            if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+                $errored = $true
+            }
+
+            if ($errored) {
+                Start-Sleep -Seconds 2
+                continue
+            } else {
+                break
+            }
+        }
+
+        if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+            Write-Host "Unable to establish connection to wsfe for proxy.  Giving up."
+            exit 1
+        } else {
+            return $websocket
+        }
+    }
+    
     function Start-WebSocketListener {
         param (
             [string]$runbook_task_id,
@@ -380,9 +424,7 @@ $proxy_block = {
         # Define your Bearer token
         # Define the WebSocket server URI (ensure it starts with wss:// for a secure connection)
         # $uri = [System.Uri]::new("wss://dev.dagknows.com/wsfe/proxies/agents/connect")
-        $websocket = New-Object System.Net.WebSockets.ClientWebSocket
-        $websocket.Options.SetRequestHeader("Authorization", "Bearer $token")
-        $uri = [System.Uri]::new($proxy_ws + $proxy_domain + "/wsfe/proxies/agents/connect")
+        $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
         $execs_url = $proxy_ws + $proxy_domain + "/wsfe"
         $dagknows_url = $proxy_http + $proxy_domain
         $apiUrl = $dagknows_url + "/api/tasks/" + $runbook_task_id + "/execute"
@@ -392,10 +434,6 @@ $proxy_block = {
         Write-Host "Trying to connect to ws" 
 
         try {
-            # Connect to the WebSocket server
-            #Write-Host "Really trying"
-            $websocket.ConnectAsync($uri, [Threading.CancellationToken]::None).Wait()
-            #Write-Host "Done waiting"
 
             if ($websocket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
                 Write-Host "WebSocket connection established."
@@ -435,29 +473,36 @@ $proxy_block = {
                 Write-Host "Listening for incoming messages..."
                 while ($true) {
                     if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
-                        Write-Host "Detected connection closed.  Trying to re-establish the websocket connection again."
-                        Start-Sleep -Seconds 2
-                        $websocket.ConnectAsync($uri, [Threading.CancellationToken]::None).Wait()
+                        #Write-Host "We intentionally disposed proxy websocket previously.  Restablishing the connection."
+                        $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
                     }
                     try {
                         $receiveBuffer = New-Object -TypeName byte[] -ArgumentList 4096
                         $receivedData = [System.IO.MemoryStream]::new()
     
-                        do {
-                            $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
-                            $receiveTask = $websocket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None)
-                            $receiveTask.Wait()
-    
-                            $result = $receiveTask.Result
-    
-                            if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
-                                Write-Host "Server initiated close. Closing the connection."
-                                $websocket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
-                                break
-                            }
-    
-                            $receivedData.Write($receiveBuffer, 0, $result.Count)
-                        } while (-not $result.EndOfMessage)
+                        try {
+                            do {
+                                $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
+                                $receiveTask = $websocket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None)
+                                $receiveTask.Wait()
+        
+                                $result = $receiveTask.Result
+        
+                                if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
+                                    Write-Host "Server initiated close. Closing the connection."
+                                    $websocket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
+                                    break
+                                }
+        
+                                $receivedData.Write($receiveBuffer, 0, $result.Count)
+                            } while (-not $result.EndOfMessage)
+
+                        } catch {
+                            #Write-Host "An exception was thrown while trying to receive from websocket.  Retrying."
+                            $exception_message = $_.Exception.Message
+                            continue
+                        }
+
     
                         if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
                             Write-Host "Connection closed.  CHECK A.  Continue."
@@ -510,15 +555,24 @@ $proxy_block = {
     
                                 $streamWriter.Close()
                                 Write-Host "Full path:" $fullPath
-                                
+
+                                # We already got the file.  Dispose the websocket connection while we run the job.
+                                # $websocket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
+                                $websocket.Dispose()  
     
                                 #$fullPath >> $debug_file
     
                                 #Write-Host "BEFORE RUNNING THE PROGRAM"
-                                & $fullPath  
+                                try {
+                                    & $fullPath  
+                                } catch {
+                                    #Write-Host "The job encounted an exception: $($_.Exception.Message)" 
+                                }
+                                $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+
                                 #$task_job = Start-Job -ScriptBlock { & $using:fullPath }
                                 #Wait-Job -Job $task_job
-                                #Write-Host "AFTER RUNNING THE PROGRAM"
+                                #Write-Host "AFTER RUNNING THE MAIN JOB"
                                 #$output = Receive-Job -Job $task_job
                                 #Write-Host $output
                                 #Write-Host "Debug file:" $debug_file
@@ -541,6 +595,8 @@ $proxy_block = {
 
                     } catch {
                         Write-Host "An unexpected error occurred: $_"
+                        Write-HOst "Stack trace:" 
+                        Write-Host $_.Exception.StackTrace
                     }
                 }
 
