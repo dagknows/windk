@@ -596,6 +596,8 @@ $proxy_block = {
                                     & $fullPath  
                                 } catch {
                                     #Write-Host "The job encounted an exception: $($_.Exception.Message)" 
+                                    $error_stack = $_.Exception.Message + "`n`n" + $_.Exception.StackTrace
+                                    $error_stack > $debug_file
                                 }
                                 $job_finished_count = $job_finished_count + 1
 
@@ -614,8 +616,11 @@ $proxy_block = {
                                     #$global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
                                     $which_button = $dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
                                     if ("problem_resolved"  -eq $which_button) {
+                                        Clear-Host
+                                        Write-Host "Please close this window if it does not go away by itself."
                                         # Write-Host "Your clicked on (A): " $which_button ".  Exiting."
                                         # Start-Sleep -Seconds 3
+                                        $host.SetShouldExit(1)
                                         Remove-Item $exit_file
                                         exit
                                     } else {
@@ -702,7 +707,7 @@ $proxy_block = {
             }
         }
     }
-    Set-Content -Path "$exit_file" -Value "running"
+    Set-Content -Path "$exit_file" -Value $PID
     # if (($null -ne $runbook_task_id) -and ($runbook_task_id -ne "")) {
     #     Write-Host "RUN BOOK ID PROVIDED"
     # } else {
