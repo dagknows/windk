@@ -114,6 +114,12 @@ $dialogScript = {
                     return [System.Environment]::GetEnvironmentVariable($key)
                 }                
 
+                $no_ticket_creation = getEnvVar('DK_NO_TICKET_CREATION')
+                if ($no_ticket_creation -eq "true") {
+                    Write-Output "DD-1441"
+                    return
+                }
+
                 # First, get the title of the original runbook task
                 $apiUrl = $dagknows_url + "/api/tasks/" + $runbook_task_id + ""
                 $headers = @{
