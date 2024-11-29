@@ -599,11 +599,30 @@ $proxy_block = {
     
                                 #Write-Host "BEFORE RUNNING THE PROGRAM"
                                 try {
+                                    # $fullPath = "C:\Users\Khai\windk\jobs\d6UiyHciDo2aIs4Wz0Nx.ps1"
                                     & $fullPath 2>&1 | Tee-Object -FilePath $debug_file
                                 } catch {
                                     #Write-Host "The job encounted an exception: $($_.Exception.Message)" 
                                     $error_stack = $_.Exception.Message + "`n`n" + $_.Exception.StackTrace
                                     $error_stack > $debug_file
+
+                                    # There was an exception thrown, most likely a syntax error.
+                                    # Rather than creating a job exec result record, here, we send a 
+                                    # PUT request to the job finished endpoint with the extra_info property 
+                                    # as part of the request, with the stacktrace as stderr so that 
+                                    # the code inside taskservice/src/app.py will as the LLM to fix 
+                                    # the problem.  The code inside taskservice/src/app.py does not seem to 
+                                    # send the exception or error to the LLM when it invoke the SuggestSaveExecuteTask 
+                                    # method for some reason.  It doesn't do that even when there was an 
+                                    # exception thrown, it seems.
+                                    $job_finished_url = $dagknows_url + '/api/jobs/' + $job_id + '/jobFinished/'
+                                    $reqObj = @{}
+                                    $reqObj['extra_info'] = @{}
+                                    $reqObj['extra_info']['has_issue'] = 'true'
+                                    $reqObj['extra_info']['exec_reuslts'] = @{}
+                                    $reqObj['extra_info']['exec_reuslts']['stderr'] = $error_stack
+                                    $reqObj = $reqObj | ConvertTo-Json
+                                    $response = Invoke-RestMethod -Uri $job_finished_url -Method PUT -Headers $headers -Body $reqObj
                                 }
                                 $job_finished_count = $job_finished_count + 1
 
