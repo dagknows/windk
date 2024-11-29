@@ -593,7 +593,7 @@ $proxy_block = {
     
                                 #Write-Host "BEFORE RUNNING THE PROGRAM"
                                 try {
-                                    & $fullPath  
+                                    & $fullPath 2>&1 | Tee-Object -FilePath $debug_file
                                 } catch {
                                     #Write-Host "The job encounted an exception: $($_.Exception.Message)" 
                                     $error_stack = $_.Exception.Message + "`n`n" + $_.Exception.StackTrace
@@ -616,17 +616,17 @@ $proxy_block = {
                                     #$global:dialog_job = Start-Job -ScriptBlock $dialogScript -ArgumentList $proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file
                                     $which_button = $dialogScript.Invoke($proxy_domain, $runbook_task_id, $token, $current_job_file, $job_id, $user_info, $dagknows_url, $exit_file, $debug_file)
                                     if ("problem_resolved"  -eq $which_button) {
+                                        Get-Job | Where-Object { $_.State -eq 'Running' } | Stop-Job
                                         Clear-Host
                                         Write-Host "Please close this window if it does not go away by itself."
                                         # Write-Host "Your clicked on (A): " $which_button ".  Exiting."
                                         # Start-Sleep -Seconds 3
                                         $host.SetShouldExit(1)
                                         Remove-Item $exit_file
-                                        exit
+                                        exit 0
                                     } else {
                                         Clear-Host
                                         Write-Host "For now, please minimize, but do not close this window."
-                                        Set-Content -Path "$exit_file" -Value $PID
                                         $global:modal_box_visible = $false
                                     }
                                 }
