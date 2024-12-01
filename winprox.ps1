@@ -422,6 +422,7 @@ $proxy_block = {
             Write-Host "Unable to establish connection to wsfe for proxy.  Giving up."
             exit 1
         } else {
+            Write-Host "WebSocket connection established."
             return $websocket
         }
     }
@@ -543,8 +544,6 @@ $proxy_block = {
         try {
 
             if ($websocket.State -eq [System.Net.WebSockets.WebSocketState]::Open) {
-                Write-Host "WebSocket connection established."
-
                 $params = @{} # These jobs typically do not take parameters.  If they do, we need to parse these parameters from the URL somehow.
 
                 # Now make a request.
@@ -574,7 +573,6 @@ $proxy_block = {
 
                     $submit_job = Start-Job {
                         # We want to start a background job to submit the job so that we do not miss any websocket event
-                        Start-Sleep -Seconds 1
                         Invoke-RestMethod -Uri $using:apiUrl -Method POST -Headers $using:headers -Body $using:jsonBody
                     }
 
