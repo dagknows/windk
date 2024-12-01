@@ -426,6 +426,93 @@ $proxy_block = {
         }
     }
     
+    function wait_for_proxy_ready {
+        # After the proxy establish connection to wsfe, wsfe seems to send some messages to 
+        # the proxy.  I am not sure how this is done on the wsfe side, or why it is done automatically.
+        # Perhaps, this should not be done automatically.  Perhaps, this should only be done, when the 
+        # proxy send certain message to wsfe.  When wsfe send these messages automatically, it makes it 
+        # difficult for the proxy to reliably handle these messages in some situation.  Anyway, these 
+        # messages includes "setPublicKey", "runners/python/updateDaglib", and some ping.  For now, 
+        # this function waits until we received these messages.  Only until we have received these 
+        # messages then we can submit the job for the intended runbook.
+        param (
+            [object]$websocket
+        )
+
+        $set_public_key_received = $false 
+        $daglib_received = $false 
+
+        while ($true) {
+            try {
+                $receiveBuffer = New-Object -TypeName byte[] -ArgumentList 4096
+                $receivedData = [System.IO.MemoryStream]::new()
+
+                try {
+                    do {
+                        $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
+                        $receiveTask = $websocket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None)
+                        $receiveTask.Wait()
+
+                        $result = $receiveTask.Result
+
+                        $receivedData.Write($receiveBuffer, 0, $result.Count)
+                    } while (-not $result.EndOfMessage)
+
+                } catch {
+                    Write-Host "An exception was thrown inside wait_for_proxy_ready while trying to receive from websocket.  Retrying."
+                    $exception_message = $_.Exception.Message
+                    continue
+                }
+
+                if ($receivedData.Length -gt 0) {
+                    $receivedBytes = $receivedData.ToArray()
+                    $receivedMessage = [System.Text.Encoding]::UTF8.GetString($receivedBytes)
+                    $receivedJson = $receivedMessage | ConvertFrom-Json
+                    $receivedJsonPretty = $receivedJson | ConvertTo-Json -Depth 4
+                    # Write-Host "Message received: $receivedJsonPretty"
+                    $debug_file = Join-Path -Path $working_directory -ChildPath "debug.txt" 
+                    #"" > $debug_file
+                    #$receivedJsonPretty > $debug_file
+                    $type = $receivedJson.type 
+                    $cmd = $receivedJson.cmd 
+                    $job_id = $receivedJson.message.req.job_id
+
+                    if ($job_id -ne $null) {
+                        # If we happens to receive a message with a job_id inside this function, it is 
+                        # probably ok to ignore that message because that message is probably not 
+                        # intended for this proxy because technically this proxy has not submit it the 
+                        # job for the intended runbook yet.  I am not sure if we will ever receive  a 
+                        # message with a job_id here.
+                        ;
+                    }
+
+                    if ($type -eq "cmd") {
+                        if ($cmd -eq "setPublicKey") {
+                            $set_public_key_received = $true
+                            Write-Host "Part 1 received."
+                        } elseif ($cmd -eq "runners/python/updateDaglib") {
+                            $daglib_received = $true
+                            Write-Host "Part 2 received."
+                        }
+                    }
+                    $receivedData.SetLength(0) # Clear the MemoryStream for the next message
+
+                    if (($set_public_key_received) -and ($daglib_received)) {
+                        break
+                    }
+                }
+            } catch {
+                Write-Host "An unexpected error occurred inside wait_for_proxy_ready: $_"
+                Write-HOst "Stack trace:" 
+                Write-Host $_.Exception.StackTrace
+            }
+        }
+
+        # After receiving setPublicKey, and "runners/python/updateDaglib", sleep for some small period of time 
+        # to make sure that the wsfe is fully ready from the backend.
+        Start-Sleep -Seconds 1
+    }
+
     function Start-WebSocketListener {
         param (
             [string]$runbook_task_id,
@@ -441,6 +528,7 @@ $proxy_block = {
         # Define your Bearer token
         # Define the WebSocket server URI (ensure it starts with wss:// for a secure connection)
         # $uri = [System.Uri]::new("wss://dev.dagknows.com/wsfe/proxies/agents/connect")
+        Write-Host "Trying to connect to ws" 
         $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
         $execs_url = $proxy_ws + $proxy_domain + "/wsfe"
         $dagknows_url = $proxy_http + $proxy_domain
@@ -449,7 +537,8 @@ $proxy_block = {
         $job_finished_count = 0
         # param($websocket, $uri, $dagknows_url, $execs_url)
 
-        Write-Host "Trying to connect to ws" 
+        wait_for_proxy_ready($websocket)
+        Write-Host "Proxy should be ready now." 
 
         try {
 
