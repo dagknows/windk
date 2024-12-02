@@ -559,21 +559,22 @@ $proxy_block = {
             [object]$websocket,
             [byte[]]$receiveBuffer
         )
-
+    
         $receivedData = New-Object System.IO.MemoryStream
         $control_c_original = [Console]::TreatControlCAsInput
         $final_result = ""
-        $cts = New-Object System.Threading.CancellationTokenSource
-        $linkedCts = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($cts.Token, [System.Threading.CancellationToken]::None)
+        $timeout = [TimeSpan]::FromSeconds(5)  # Adjust timeout as needed.
         
         try {
             [Console]::TreatControlCAsInput = $false
                 
             do {
+                $cts = New-Object System.Threading.CancellationTokenSource
+                #$cts.CancelAfter($timeout)
                 $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
                 
                 try {
-                    $receiveTask = $websocket.ReceiveAsync($receiveSegment, $linkedCts.Token)
+                    $receiveTask = $websocket.ReceiveAsync($receiveSegment, $cts.Token)
                     $result = $receiveTask.GetAwaiter().GetResult()
         
                     if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
@@ -584,31 +585,27 @@ $proxy_block = {
                     $receivedData.Write($receiveBuffer, 0, $result.Count)
                 }
                 catch [OperationCanceledException] {
-                    if ($cts.IsCancellationRequested) {
-                        exit 0
-                    } else {
-                        $final_result = "timeout"
-                    }
+                    $final_result = "timeout"
                     break
                 }
                 catch {
-                    #Write-Host "An error occurred during receive: $_"
                     $final_result = "exception"
                     break
+                }
+                finally {
+                    $cts.Dispose()
                 }
             } while (-not $result.EndOfMessage)
         }
         finally {
             [Console]::TreatControlCAsInput = $control_c_original
-            $cts.Dispose()
-            $linkedCts.Dispose()
         }
-
+    
         if ($final_result -eq "") {
             $receivedData.Seek(0, [System.IO.SeekOrigin]::Begin)
             $final_result = [System.Text.Encoding]::UTF8.GetString($receivedData.ToArray())
         }
-
+    
         return $final_result
     }
 
