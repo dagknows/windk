@@ -120,6 +120,7 @@ $profile_block = {
 
         Get-Job | Where-Object { $_.State -eq 'Running' } | Stop-Job
         Get-Job | Where-Object { $_.State -eq 'Completed' } | Remove-Job
+
     }
 
     Start-Profiling -runbook_task_id $runbook_task_id -proxy_ws $proxy_ws -proxy_http $proxy_http -proxy_domain $proxy_domain -token $token -working_directory $working_directory -exit_file $exit_file -limit $limit
@@ -147,3 +148,6 @@ $runbook_task_id = Read-Host "Please provide the ID of the runbook to use"
 $limit = [int](Read-Host "How many iteration should I run this for?")
 Read-Host "It is expected that the proxy is already started.  If not, please start it now, hit enter key when the proxy is fully started."
 $profile_block.Invoke($runbook_task_id, $proxy_ws, $proxy_http, $proxy_domain, $token, $PSScriptRoot, $limit)
+Clear-Host 
+Write-Host "All " $limit " iteration(s) processed successfully.  Did not face any stuck connection issue."
+exit 0
