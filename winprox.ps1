@@ -18,6 +18,7 @@ if ($pattern.Success) {
     Write-Host "Extracted string: $runbook_task_id"
 } else {
     Write-Host "No match found."
+    $runbook_task_id = ""
 }
 
 function createTicket {
@@ -426,6 +427,42 @@ $proxy_block = {
             return $websocket
         }
     }
+
+    function send_ping {
+        param (
+            [object]$websocket,
+            [string]$connId
+        )
+
+        try {
+            $jsonPayload = @{
+                type = "ping"
+                connId  = $connId
+            } | ConvertTo-Json -Depth 10
+            
+            # Convert JSON payload to bytes
+            $payloadBytes = [System.Text.Encoding]::UTF8.GetBytes($jsonPayload)
+            
+            # Send the JSON payload
+            $buffer = [System.ArraySegment[byte]]::new($payloadBytes)
+            $websocket.SendAsync($buffer, [System.Net.WebSockets.WebSocketMessageType]::Text, $true, [Threading.CancellationToken]::None).Wait()
+            
+            # Create a buffer to receive the response
+            #$responseBuffer = New-Object byte  # Initialize a byte array of size 1024 (or desired size)
+            #$responseSegment = [System.ArraySegment[byte]]::new($responseBuffer)
+            
+            # Receive the response
+            #$response = $websocket.ReceiveAsync($responseSegment, [Threading.CancellationToken]::None).Result
+            
+            # Decode the response
+            #$responseText = [System.Text.Encoding]::UTF8.GetString($responseBuffer, 0, $response.Count)
+            #Write-Host "Received response: $responseText"
+
+        } catch {
+            # If the ping fails for any reason, it is probably ok to ignore it.
+            ;
+        }
+    }
     
     function wait_for_proxy_ready {
         # After the proxy establish connection to wsfe, wsfe seems to send some messages to 
@@ -437,7 +474,10 @@ $proxy_block = {
         # this function waits until we received these messages.  Only until we have received these 
         # messages then we can submit the job for the intended runbook.
         param (
-            [object]$websocket
+            [object]$websocket,
+            [string]$token,
+            [string]$proxy_ws,
+            [string]$proxy_domain
         )
 
         $set_public_key_received = $false 
@@ -460,9 +500,12 @@ $proxy_block = {
                     } while (-not $result.EndOfMessage)
 
                 } catch {
-                    Write-Host "An exception was thrown inside wait_for_proxy_ready while trying to receive from websocket.  Retrying."
-                    $exception_message = $_.Exception.Message
-                    continue
+                    Write-Host "An exception was thrown inside wait_for_proxy_ready while trying to receive from websocket."
+                    $exception_message = $_.Exception.Message + "`n" + $_.Exception.StackTrace
+                    Write-Host "Exception: " $exception_message
+                    Write-Host "Retrying.."
+                    $websocket.Dispose()
+                    $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
                 }
 
                 if ($receivedData.Length -gt 0) {
@@ -506,12 +549,16 @@ $proxy_block = {
                 Write-Host "An unexpected error occurred inside wait_for_proxy_ready: $_"
                 Write-HOst "Stack trace:" 
                 Write-Host $_.Exception.StackTrace
+                Write-HOst "Retrying.." 
+                $websocket.Dispose()
+                $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
             }
         }
 
         # After receiving setPublicKey, and "runners/python/updateDaglib", sleep for some small period of time 
         # to make sure that the wsfe is fully ready from the backend.
         Start-Sleep -Seconds 1
+        return $websocket
     }
 
     function Start-WebSocketListener {
@@ -530,6 +577,9 @@ $proxy_block = {
         # Define the WebSocket server URI (ensure it starts with wss:// for a secure connection)
         # $uri = [System.Uri]::new("wss://dev.dagknows.com/wsfe/proxies/agents/connect")
         Write-Host "Trying to connect to ws" 
+        $debug_file = Join-Path -Path $working_directory -ChildPath "debug.txt" 
+        "" > $debug_file
+
         $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
         $execs_url = $proxy_ws + $proxy_domain + "/wsfe"
         $dagknows_url = $proxy_http + $proxy_domain
@@ -538,7 +588,10 @@ $proxy_block = {
         $job_finished_count = 0
         # param($websocket, $uri, $dagknows_url, $execs_url)
 
-        wait_for_proxy_ready($websocket)
+        $websocket = wait_for_proxy_ready -websocket $websocket -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+        $connId = $null
+        $initial_ping_sent = $false
+        $last_ping_sent_time = Get-Date 
         Write-Host "Proxy should be ready now." 
 
         try {
@@ -595,7 +648,10 @@ $proxy_block = {
                     
                     if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
                         #Write-Host "We intentionally disposed proxy websocket previously.  Restablishing the connection."
+                        $websocket.Dispose()
+                        Write-Host "Somehow the websocket connection got closed.  Reconnecting..."
                         $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+                        $websocket = wait_for_proxy_ready -websocket $websocket -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
                     }
 
                     try {
@@ -637,9 +693,19 @@ $proxy_block = {
                             $receivedJson = $receivedMessage | ConvertFrom-Json
                             $receivedJsonPretty = $receivedJson | ConvertTo-Json -Depth 4
                             # Write-Host "Message received: $receivedJsonPretty"
-                            $debug_file = Join-Path -Path $working_directory -ChildPath "debug.txt" 
-                            #"" > $debug_file
-                            #$receivedJsonPretty > $debug_file
+                            #$receivedJsonPretty >> $debug_file
+                            $type = $receivedJson.type 
+                            $cmd = $receivedJson.cmd 
+                            $connId = $receivedJson.connId
+
+                            $now = Get-Date
+                            $last_ping_sent_diff = ($now - $last_ping_sent_time).TotalSeconds
+                            if (("ping" -eq $type) -and (($null -ne $connId) -or ($false -eq $initial_ping_sent) -or ($last_ping_sent_diff -ge 30))) {
+                                send_ping -websocket $websocket -connId $connId
+                                $initial_ping_sent = $true 
+                                $last_ping_sent_time = Get-Date
+                            }
+        
                             $user_info = $receivedJson.message.user_info
                             $conv_id = $receivedJson.message.req.req_obj.conv_id
                             $iter = $receivedJson.message.req.req_obj.iter
@@ -653,9 +719,12 @@ $proxy_block = {
                             $job_folder = Join-Path -Path $working_directory -ChildPath "jobs" 
                             Ensure-DirectoryExists -directoryPath $job_folder
     
-                            $fileName = "\jobs\$job_id.ps1"
                             if ($job_id -ne $null) {
+                                $fileName = "\jobs\$job_id.ps1"
                                 $fullPath = Join-Path -Path $working_directory -ChildPath $fileName 
+                                $profile_file = Join-Path -Path $working_directory -ChildPath "profile_status.txt" 
+                                $error_file = Join-Path -Path $working_directory -ChildPath "error.txt" 
+
                                 $current_job_file = Join-Path -Path $working_directory -ChildPath "jobs/current_job.txt" 
                                 $streamWriter = [System.IO.StreamWriter]::new($fullPath, $false, [System.Text.Encoding]::UTF8)
                                 $final_execs_url = $execs_url 
@@ -687,7 +756,10 @@ $proxy_block = {
                                 #Write-Host "BEFORE RUNNING THE PROGRAM"
                                 try {
                                     # $fullPath = "C:\Users\Khai\windk\jobs\d6UiyHciDo2aIs4Wz0Nx.ps1"
-                                    & $fullPath 2>&1 | Tee-Object -FilePath $debug_file
+                                    Write-Host "Starting job ID: " $job_id
+                                    # & $fullPath 2>&1 | Tee-Object -FilePath $debug_file | Out-Default
+                                    & $fullPath 1> (Tee-Object -FilePath $debug_file -Append | Out-Default) 2> $error_file
+                                    [Console]::Out.Flush()
                                 } catch {
                                     #Write-Host "The job encounted an exception: $($_.Exception.Message)" 
                                     $error_stack = $_.Exception.Message + "`n`n" + $_.Exception.StackTrace
@@ -711,6 +783,7 @@ $proxy_block = {
                                     $reqObj = $reqObj | ConvertTo-Json
                                     $response = Invoke-RestMethod -Uri $job_finished_url -Method PUT -Headers $headers -Body $reqObj
                                 }
+                                Set-Content -Path $profile_file -Value "Job finished."
                                 $job_finished_count = $job_finished_count + 1
 
                                 #$task_job = Start-Job -ScriptBlock { & $using:fullPath }
