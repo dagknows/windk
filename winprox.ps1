@@ -667,6 +667,8 @@ $proxy_block = {
                         Write-Host "Somehow the websocket connection got closed.  Reconnecting..."
                         $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain -verbose $false
                         $websocket = wait_for_proxy_ready -websocket $websocket -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+                        $connId = $null
+                        $last_ping_sent_time = Get-Date 
                     }
 
                     try {
