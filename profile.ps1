@@ -78,33 +78,43 @@ $profile_block = {
             submit_job_for_runbook -runbook_task_id $runbook_task_id -proxy_ws $proxy_ws -proxy_http $proxy_http -proxy_domain $proxy_domain -token $token -working_directory $working_directory -exit_file $exit_file
             Write-Host "Waiting for some time for the proxy to get started."
             Start-Sleep -Seconds 2
-            $lastUpdatedTime = (Get-Item $profile_file).LastWriteTime
-            $currentTime = Get-Date
-            $timeDifferenceInSeconds = ($currentTime - $lastUpdatedTime).TotalSeconds
-
-            if ($timeDifferenceInSeconds -gt 300) {
-                Write-Host "Stuckness detected.  CHECK A."
-                exit 1
+            try {
+                $lastUpdatedTime = (Get-Item $profile_file).LastWriteTime
+                $currentTime = Get-Date
+                $timeDifferenceInSeconds = ($currentTime - $lastUpdatedTime).TotalSeconds
+    
+                if ($timeDifferenceInSeconds -gt 300) {
+                    Write-Host "Stuckness detected.  CHECK A."
+                    exit 1
+                }    
+            } catch {
+                $exception_message = $_.Exception.Message + "`n" + $_.Exception.StackTrace
+                Write-Host "Exception  CHECK A.  Message: " $exception_message
             }
 
             Write-Host "Waiting for the current job to finish."
             $currentTime1 = Get-Date
             while ($true) {
-                $currentTime2 = Get-Date
-                $timeDifferenceInSeconds = ($currentTime2 - $currentTime1).TotalSeconds
-                if ($timeDifferenceInSeconds -gt 600) {
-                    # For the job that we selected to use for detecting stuckness or detecting other issues, 
-                    # if it takes longer than 10 minutes, there is probably something wrong.  If that job naturally 
-                    # take longer than 10 minutes to run, do not use it for this script.  Pick some other runbook 
-                    # instead.
-                    Write-Host "Stuckness detected.  CHECK B."
-                    exit 2
+                try {
+                    $currentTime2 = Get-Date
+                    $timeDifferenceInSeconds = ($currentTime2 - $currentTime1).TotalSeconds
+                    if ($timeDifferenceInSeconds -gt 600) {
+                        # For the job that we selected to use for detecting stuckness or detecting other issues, 
+                        # if it takes longer than 10 minutes, there is probably something wrong.  If that job naturally 
+                        # take longer than 10 minutes to run, do not use it for this script.  Pick some other runbook 
+                        # instead.
+                        Write-Host "Stuckness detected.  CHECK B."
+                        exit 2
+                    }
+                    $fileContent = Get-Content -Path $profile_file -Raw
+                    if (($null -ne $fileContent) -and ($fileContent.Contains("Job finished"))) {
+                        break;
+                    }
+                    Start-Sleep -Seconds 1    
+                } catch {
+                    $exception_message = $_.Exception.Message + "`n" + $_.Exception.StackTrace
+                    Write-Host "Exception  CHECK B.  Message: " $exception_message    
                 }
-                $fileContent = Get-Content -Path $profile_file -Raw
-                if ($fileContent.Contains("Job finished")) {
-                    break;
-                }
-                Start-Sleep -Seconds 1
             }
         }
 
