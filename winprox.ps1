@@ -483,38 +483,25 @@ $proxy_block = {
             [string]$proxy_domain
         )
 
-        $set_public_key_received = $false 
-        $daglib_received = $false 
         $first_ping_received = $false
 
         while ($true) {
             try {
                 $receiveBuffer = New-Object -TypeName byte[] -ArgumentList 4096
-                $receivedData = [System.IO.MemoryStream]::new()
-
-                try {
-                    do {
-                        $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
-                        $receiveTask = $websocket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None)
-                        $receiveTask.Wait()
-
-                        $result = $receiveTask.Result
-
-                        $receivedData.Write($receiveBuffer, 0, $result.Count)
-                    } while (-not $result.EndOfMessage)
-
-                } catch {
-                    #Write-Host "An exception was thrown inside wait_for_proxy_ready while trying to receive from websocket."
-                    $exception_message = $_.Exception.Message + "`n" + $_.Exception.StackTrace
-                    #Write-Host "Exception: " $exception_message
-                    #Write-Host "Retrying.."
+                $receivedMessage = retrieve_message -websocket $websocket -receiveBuffer $receiveBuffer
+                if ($receivedMessage -eq "exception") {
                     $websocket.Dispose()
                     $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain -verbose $false
-                }
-
-                if ($receivedData.Length -gt 0) {
-                    $receivedBytes = $receivedData.ToArray()
-                    $receivedMessage = [System.Text.Encoding]::UTF8.GetString($receivedBytes)
+                    continue
+                } elseif ($receivedMessage -eq "timeout") {
+                    continue
+                } elseif ($receivedMessage -eq "closed") {
+                    # If the server really closed the connection, what should we do?  I am not really sure on what to do in this case.
+                    Start-Sleep -Seconds 2
+                    $websocket.Dispose()
+                    $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain -verbose $false
+                    continue
+                } else {
                     $receivedJson = $receivedMessage | ConvertFrom-Json
                     $receivedJsonPretty = $receivedJson | ConvertTo-Json -Depth 4
                     # Write-Host "Message received: $receivedJsonPretty"
@@ -524,7 +511,6 @@ $proxy_block = {
                     $type = $receivedJson.type 
                     $cmd = $receivedJson.cmd 
                     
-
                     $job_id = $receivedJson.message.req.job_id
 
                     if ($job_id -ne $null) {
@@ -536,29 +522,21 @@ $proxy_block = {
                         ;
                     }
 
-                    if ($type -eq "cmd") {
-                        if ($cmd -eq "setPublicKey") {
-                            $set_public_key_received = $true
-                            #Write-Host "Part 1 received."
-                        } elseif ($cmd -eq "runners/python/updateDaglib") {
-                            $daglib_received = $true
-                            #Write-Host "Part 2 received."
-                        }
-                    } elseif ("ping" -eq $type) {
+                    if ("ping" -eq $type) {
                         $first_ping_received = $true
                         $connId = $receivedJson.connId
                         Write-Host "Sending ping.  connId:" $connId (Get-Date)
                         send_ping -websocket $websocket -connId $connId
                         #Write-Host "Part 3 received."
                     }
-                    $receivedData.SetLength(0) # Clear the MemoryStream for the next message
 
-                    if (($set_public_key_received) -and ($daglib_received) -and ($first_ping_received)) {
+                    if ($first_ping_received) {
                         break
                     } else {
                         Write-Host "Please wait.  Proxy is still starting up."
                     }
                 }
+
             } catch {
                 $exception_message = $_.Exception.Message + "`n" + $_.Exception.StackTrace
                 #Write-Host "An unexpected error occurred inside wait_for_proxy_ready: $_"
@@ -575,6 +553,65 @@ $proxy_block = {
         Start-Sleep -Seconds 1
         return $websocket
     }
+
+    function retrieve_message {
+        param (
+            [object]$websocket,
+            [byte[]]$receiveBuffer
+        )
+
+        $receivedData = New-Object System.IO.MemoryStream
+        $control_c_original = [Console]::TreatControlCAsInput
+        $final_result = ""
+        $cts = New-Object System.Threading.CancellationTokenSource
+        $linkedCts = [System.Threading.CancellationTokenSource]::CreateLinkedTokenSource($cts.Token, [System.Threading.CancellationToken]::None)
+        
+        try {
+            [Console]::TreatControlCAsInput = $false
+                
+            do {
+                $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
+                
+                try {
+                    $receiveTask = $websocket.ReceiveAsync($receiveSegment, $linkedCts.Token)
+                    $result = $receiveTask.GetAwaiter().GetResult()
+        
+                    if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
+                        $final_result = "closed"
+                        break
+                    }
+        
+                    $receivedData.Write($receiveBuffer, 0, $result.Count)
+                }
+                catch [OperationCanceledException] {
+                    if ($cts.IsCancellationRequested) {
+                        exit 0
+                    } else {
+                        $final_result = "timeout"
+                    }
+                    break
+                }
+                catch {
+                    #Write-Host "An error occurred during receive: $_"
+                    $final_result = "exception"
+                    break
+                }
+            } while (-not $result.EndOfMessage)
+        }
+        finally {
+            [Console]::TreatControlCAsInput = $control_c_original
+            $cts.Dispose()
+            $linkedCts.Dispose()
+        }
+
+        if ($final_result -eq "") {
+            $receivedData.Seek(0, [System.IO.SeekOrigin]::Begin)
+            $final_result = [System.Text.Encoding]::UTF8.GetString($receivedData.ToArray())
+        }
+
+        return $final_result
+    }
+
 
     function Start-WebSocketListener {
         param (
@@ -673,40 +710,13 @@ $proxy_block = {
 
                     try {
                         $receiveBuffer = New-Object -TypeName byte[] -ArgumentList 4096
-                        $receivedData = [System.IO.MemoryStream]::new()
-    
-                        try {
-                            do {
-                                $receiveSegment = [System.ArraySegment[byte]]::new($receiveBuffer)
-                                $receiveTask = $websocket.ReceiveAsync($receiveSegment, [Threading.CancellationToken]::None)
-                                $receiveTask.Wait()
-        
-                                $result = $receiveTask.Result
-        
-                                if ($result.MessageType -eq [System.Net.WebSockets.WebSocketMessageType]::Close) {
-                                    Write-Host "Server initiated close. Closing the connection."
-                                    $websocket.CloseAsync([System.Net.WebSockets.WebSocketCloseStatus]::NormalClosure, "Closing", [Threading.CancellationToken]::None).Wait()
-                                    break
-                                }
-        
-                                $receivedData.Write($receiveBuffer, 0, $result.Count)
-                            } while (-not $result.EndOfMessage)
+                        $receivedMessage = retrieve_message -websocket $websocket -receiveBuffer $receiveBuffer
 
-                        } catch {
-                            #Write-Host "An exception was thrown while trying to receive from websocket.  Retrying."
-                            $exception_message = $_.Exception.Message
-                            continue
-                        }
-
-    
                         if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
                             Write-Host "Connection closed.  CHECK A.  Continue."
                         }
-    
-    
-                        if ($receivedData.Length -gt 0) {
-                            $receivedBytes = $receivedData.ToArray()
-                            $receivedMessage = [System.Text.Encoding]::UTF8.GetString($receivedBytes)
+
+                        if (@("timeout","exception","closed") -notcontains $receivedMessage) {
                             $receivedJson = $receivedMessage | ConvertFrom-Json
                             $receivedJsonPretty = $receivedJson | ConvertTo-Json -Depth 4
                             # Write-Host "Message received: $receivedJsonPretty"
@@ -861,7 +871,6 @@ $proxy_block = {
                                 #$websocket.Dispose()  
                                 #break
                             }
-                            $receivedData.SetLength(0) # Clear the MemoryStream for the next message
 
                             if ($job_finished_count -gt 0) {
                                 # Write-Host "receivedData.SetLength resetted."
