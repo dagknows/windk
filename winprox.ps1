@@ -391,8 +391,6 @@ $proxy_block = {
             [bool]$verbose
         )    
 
-        $websocket = New-Object System.Net.WebSockets.ClientWebSocket
-        $websocket.Options.SetRequestHeader("Authorization", "Bearer $token")
         $uri = [System.Uri]::new($proxy_ws + $proxy_domain + "/wsfe/proxies/agents/connect")
 
         $itercount = 0
@@ -400,6 +398,8 @@ $proxy_block = {
             $errored = $false
             try {
                 #Write-Host "Trying to create websocket"
+                $websocket = New-Object System.Net.WebSockets.ClientWebSocket
+                $websocket.Options.SetRequestHeader("Authorization", "Bearer $token")
                 $websocket.ConnectAsync($uri, [Threading.CancellationToken]::None).Wait()
             } catch {
                 $errored = $true
@@ -413,6 +413,9 @@ $proxy_block = {
             }
 
             if ($errored) {
+                $websocket.Dispose()
+                $itercount = $itercount + 1
+                Write-Host "Attempt: " $itercount
                 Start-Sleep -Seconds 2
                 continue
             } else {
@@ -699,8 +702,9 @@ $proxy_block = {
                         #Write-Host "We intentionally disposed proxy websocket previously.  Restablishing the connection."
                         $websocket.Dispose()
                         Write-Host "Somehow the websocket connection got closed.  Reconnecting..."
-                        $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain -verbose $false
+                        $websocket = wsfe_proxy_connect -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain -verbose $true
                         $websocket = wait_for_proxy_ready -websocket $websocket -token $token -proxy_ws $proxy_ws -proxy_domain $proxy_domain
+                        Write-Host "Connection re-established."
                         $connId = $null
                         $last_ping_sent_time = Get-Date 
                     }
