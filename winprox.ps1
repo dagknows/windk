@@ -394,7 +394,7 @@ $proxy_block = {
         $uri = [System.Uri]::new($proxy_ws + $proxy_domain + "/wsfe/proxies/agents/connect")
 
         $itercount = 0
-        while ($itercount -lt 50) {
+        while ($true) {
             $errored = $false
             try {
                 #Write-Host "Trying to create websocket"
@@ -416,7 +416,8 @@ $proxy_block = {
                 $websocket.Dispose()
                 $itercount = $itercount + 1
                 Write-Host "Attempt: " $itercount
-                Start-Sleep -Seconds 2
+                # Sleep for some time between each retry.  Notice that the first attempt is always immediate.
+                Start-Sleep -Seconds 10
                 continue
             } else {
                 break
