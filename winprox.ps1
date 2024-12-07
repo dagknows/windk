@@ -1,5 +1,7 @@
 param (
-    [string]$url
+    [string]$url,
+    [string]$desktop,
+    [string]$runbook_task_id
 )
 $url = $url -replace "^dk://", "https://"
 
@@ -9,16 +11,18 @@ Add-Type -AssemblyName System.Windows.Forms
 # The URL from which you want to extract the string
 # $url = "https://dev.dagknows.com/tasks/urVBfYgPpGU74mqGClZH/execute"
 
-# Use regex to extract the random string (assuming it's always between 'tasks/' and '/execute')
-$pattern = [regex]::Match($url, "/tasks/([a-zA-Z0-9]+)")
 
-# Get the value of the first capture group
-if ($pattern.Success) {
-    $runbook_task_id = $pattern.Groups[1].Value
-    Write-Host "Extracted string: $runbook_task_id"
-} else {
-    Write-Host "No match found."
-    $runbook_task_id = ""
+if ($desktop.Trim() -ne "true") {
+    # Use regex to extract the random string (assuming it's always between 'tasks/' and '/execute')
+    $pattern = [regex]::Match($url, "/tasks/([a-zA-Z0-9]+)")
+    # Get the value of the first capture group
+    if ($pattern.Success) {
+        $runbook_task_id = $pattern.Groups[1].Value
+        Write-Host "Extracted string: $runbook_task_id"
+    } else {
+        Write-Host "No match found."
+        $runbook_task_id = ""
+    }
 }
 
 function createTicket {
